@@ -1,0 +1,277 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer utilities {
+  .glass-card-light {
+    background-color: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.60);
+  }
+
+  .glass-card-dark {
+    background-color: rgba(10, 16, 45, 0.75);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .bg-gradient-primary {
+    background-image: linear-gradient(135deg, #2438E8 0%, #6D28D9 100%);
+  }
+
+  .text-gradient-lavender {
+    background-image: linear-gradient(90deg, #C9D4FF 0%, #B7A6FF 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 2px 10px rgba(0, 0, 50, 0.55));
+  }
+
+  .font-caveat {
+    font-family: var(--font-caveat), cursive, sans-serif;
+  }
+
+  .text-shadow-hero {
+    text-shadow: 0 2px 12px rgba(0, 0, 40, 0.55);
+  }
+
+  .text-shadow-sub {
+    text-shadow: 0 2px 10px rgba(0, 0, 30, 0.55);
+  }
+}
+
+:root {
+  --background: #f8fafc;
+  --foreground: #111936;
+
+  /* Student Portal Responsive Shell Heights */
+  --tabbar-h: 64px;
+  --actionbar-h: 64px;
+
+  /* Vintage Vignette Variables (Light Mode) */
+  --vignette-center: rgba(0, 0, 0, 0);
+  --vignette-mid: rgba(5, 10, 60, 0.35);
+  --vignette-edge: rgba(3, 6, 40, 0.70);
+  --vignette-corner: rgba(2, 4, 30, 0.88);
+  --scrim-left: rgba(10, 20, 160, 0.45);
+  --scrim-mid: rgba(10, 20, 160, 0.15);
+
+  --photo-brightness: 1.05;
+  --photo-contrast: 1.05;
+  --photo-saturate: 1.1;
+}
+
+.dark {
+  --background: #050a24;
+  --foreground: #ffffff;
+
+  /* Student Portal Responsive Shell Heights */
+  --tabbar-h: 64px;
+  --actionbar-h: 64px;
+
+  /* Vintage Vignette Variables (Dark Mode) */
+  --vignette-center: rgba(0, 0, 0, 0);
+  --vignette-mid: rgba(3, 7, 35, 0.60);
+  --vignette-edge: rgba(2, 4, 25, 0.85);
+  --vignette-corner: rgba(2, 4, 25, 0.96);
+  --scrim-left: rgba(5, 10, 50, 0.60);
+  --scrim-mid: rgba(5, 10, 50, 0.25);
+
+  --photo-brightness: 0.75;
+  --photo-contrast: 1.05;
+  --photo-saturate: 1.0;
+}
+
+@media (min-width: 768px) {
+  :root,
+  .dark {
+    --tabbar-h: 0px;
+    --actionbar-h: 0px;
+  }
+}
+
+/* Layer 1: Photo Filter */
+.photo-filter {
+  filter: saturate(var(--photo-saturate)) contrast(var(--photo-contrast)) brightness(var(--photo-brightness));
+  transition: filter 300ms ease;
+}
+
+/* Layer 2: Main Vintage Radial Elliptical Vignette */
+.vignette {
+  background: radial-gradient(ellipse 75% 70% at 50% 50%,
+      var(--vignette-center) 0%,
+      var(--vignette-center) 45%,
+      var(--vignette-mid) 70%,
+      var(--vignette-edge) 88%,
+      var(--vignette-corner) 100%);
+  transition: background 300ms ease;
+}
+
+.dark .vignette {
+  background: radial-gradient(ellipse 75% 70% at 50% 50%,
+      var(--vignette-center) 0%,
+      var(--vignette-center) 35%,
+      var(--vignette-mid) 65%,
+      var(--vignette-edge) 85%,
+      var(--vignette-corner) 100%);
+}
+
+/* Layer 3: Soft Vintage Quad-Corner Tint */
+.vignette-corners {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(20, 30, 200, 0.45), transparent 40%),
+    radial-gradient(circle at 100% 0%, rgba(20, 30, 200, 0.40), transparent 40%),
+    radial-gradient(circle at 0% 100%, rgba(10, 15, 120, 0.55), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgba(10, 15, 120, 0.55), transparent 45%);
+  transition: background 300ms ease;
+}
+
+.dark .vignette-corners {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(5, 10, 70, 0.60), transparent 40%),
+    radial-gradient(circle at 100% 0%, rgba(5, 10, 70, 0.55), transparent 40%),
+    radial-gradient(circle at 0% 100%, rgba(3, 7, 50, 0.75), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgba(3, 7, 50, 0.75), transparent 45%);
+}
+
+/* Layer 4: Localized Left Scrim (Text Readability Only) */
+.text-scrim-left {
+  background: linear-gradient(90deg,
+      var(--scrim-left) 0%,
+      var(--scrim-mid) 35%,
+      transparent 55%);
+  transition: background 300ms ease;
+}
+
+/* Layer 5: Film Grain Texture (feTurbulence SVG) */
+.film-grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.06'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+.font-caveat {
+  font-family: "Caveat", cursive, sans-serif !important;
+}
+
+/* Custom modern scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* Short height screens (e.g. 1366x768 with browser chrome, or 125%-150% scaling) */
+@media (max-height: 700px) {
+  .short-hide-subtext {
+    display: none !important;
+  }
+
+  .short-tight-hero {
+    gap: 8px !important;
+  }
+
+  .short-tight-card {
+    padding: 16px 20px !important;
+    gap: 8px !important;
+  }
+
+  .short-chip {
+    height: 44px !important;
+  }
+
+  .short-badge {
+    width: 68px !important;
+    height: 68px !important;
+  }
+}
+
+@media (max-height: 680px) {
+  .subtext-min-height {
+    display: none !important;
+  }
+}
+
+@media (max-height: 640px) {
+  .short-tight-card {
+    padding: 10px 16px !important;
+    gap: 5px !important;
+  }
+  .short-badge {
+    width: 58px !important;
+    height: 58px !important;
+  }
+}
+
+/* WCAG 2.2 AA - Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Print Stylesheet for Reports, Room Lists, and Gate QR Posters */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  nav,
+  aside,
+  header,
+  .no-print,
+  button,
+  .floating-pill {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .card,
+  .p-6,
+  .p-4 {
+    box-shadow: none !important;
+    border: 1px solid #cccccc !important;
+    break-inside: avoid;
+  }
+}

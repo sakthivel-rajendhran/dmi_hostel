@@ -1,0 +1,54 @@
+{
+  "name": "DMI College Hostel Management",
+  "short_name": "DMI Hostel",
+  "description": "Secure, Role-Based Digital Outpass & Hostel Management System",
+  "id": "/?source=pwa",
+  "start_url": "/login?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#2B2FE0",
+  "background_color": "#050A24",
+  "categories": ["education", "utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Scan Gate QR",
+      "short_name": "Scan Gate",
+      "description": "Scan campus gate QR poster for exit or entry",
+      "url": "/student/scan",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Apply Pass",
+      "short_name": "Apply",
+      "description": "Request a local or home outpass",
+      "url": "/student/apply",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

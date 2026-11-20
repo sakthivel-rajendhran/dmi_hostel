@@ -1,0 +1,464 @@
+import { z } from "zod";
+import { WORKFLOW_CONFIG } from "@/config/workflow.js";
+
+// Student ID Regex Schema (e.g. CSE-3-001)
+export const studentIdSchema = z
+  .string()
+  .trim()
+  .min(1, "Student ID is required")
+  .regex(
+    /^[A-Z]{2,6}-[1-4]-\d{3}$/,
+    "Use the format DEPT-YEAR-NUMBER, e.g. CSE-3-001"
+  );
+
+// Gmail / Official Staff Email Schema
+export const gmailSchema = z
+  .string()
+  .trim()
+  .email("Enter a valid email address")
+  .toLowerCase();
+
+// Name Schema (Letters, spaces, dots, apostrophes, 3-50 chars)
+export const nameSchema = z
+  .string()
+  .trim()
+  .min(3, "Name must be at least 3 characters")
+  .max(50, "Name cannot exceed 50 characters")
+  .regex(/^[a-zA-Z\s.']+$/, "Letters, spaces, dots and apostrophes only");
+
+// Indian Mobile Phone Schema (10 digits starting with 6-9)
+export const phoneSchema = z
+  .string()
+  .trim()
+  .regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit Indian mobile number");
+
+export const indianPhoneSchema = phoneSchema;
+
+// University Register / Roll Number Schema (6-15 uppercase alphanumeric chars)
+export const regNoSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .min(6, "Register number must be at least 6 characters")
+  .max(15, "Register number cannot exceed 15 characters")
+  .regex(/^[A-Z0-9]{6,15}$/, "Register number must be 6–15 alphanumeric characters");
+
+/**
+ * Floor configuration map helper
+ */
+const FLOOR_PREFIX_MAP = {
+  GF: { prefix: "G", label: "Ground Floor", min: 1, max: 30 },
+  F2: { prefix: "2", label: "2nd Floor", min: 201, max: 230 },
+  F3: { prefix: "3", label: "3rd Floor", min: 301, max: 330 },
+  F4: { prefix: "4", label: "4th Floor", min: 401, max: 430 },
+};
+
+/**
+ * Returns floor label corresponding to a room number prefix
+ * @param {string} roomNo e.g. "G05", "204", "304", "412"
+ */
+export function getFloorForRoom(roomNo = "") {
+  const clean = roomNo.trim().toUpperCase();
+  if (!clean) return null;
+  const p = clean.charAt(0);
+  if (p === "G") return "Ground Floor";
+  if (p === "2") return "2nd Floor";
+  if (p === "3") return "3rd Floor";
+  if (p === "4") return "4th Floor";
+  return null;
+}
+
+/**
+ * Computes Academic Batch from Year (e.g. Year 3 in 2026 -> "2024 – 2028")
+ * @param {number|string} year
+ * @param {number} [currentYear=2026]
+ * @returns {string}
+ */
+export function computeBatch(year, currentYear = 2026) {
+  const y = Number(year) || 1;
+  const startYear = currentYear - (y - 1);
+  const endYear = startYear + 4;
+  return `${startYear} – ${endYear}`;
+}
+
+// Room Number Base Regex Schema: G01-G30, 201-230, 301-330, 401-430
+export const roomNoSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .min(1, "Room number is required")
+  .regex(
+    /^(G\d{2}|[2-4]\d{2})$/,
+    "Room must be in format G01–G30, 201–230, 301–330, or 401–430"
+  )
+  .superRefine((room, ctx) => {
+    const prefix = room.charAt(0);
+    const numPart = parseInt(room.substring(1), 10);
+
+    if (prefix === "G") {
+      if (isNaN(numPart) || numPart < 1 || numPart > 30) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Room number on Ground Floor must be between G01 and G30",
+        });
+      }
+    } else {
+      const fullNum = parseInt(room, 10);
+      const floorDigits = parseInt(prefix, 10);
+      const min = floorDigits * 100 + 1;
+      const max = floorDigits * 100 + 30;
+
+      if (isNaN(fullNum) || fullNum < min || fullNum > max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Room number must be between ${min} and ${max}`,
+        });
+      }
+    }
+  });
+
+/**
+ * Validates that room number matches the specific floor
+ * @param {string} floor e.g. "GF", "F2", "F3", "F4"
+ * @param {string} room e.g. "304"
+ */
+export function validateRoomMatchesFloor(floor, room) {
+  if (!floor || !room) return { valid: false, error: "Floor and room are required" };
+  const cleanRoom = room.trim().toUpperCase();
+  const info = FLOOR_PREFIX_MAP[floor];
+  if (!info) return { valid: false, error: "Invalid floor selected" };
+
+  if (!cleanRoom.startsWith(info.prefix)) {
+    const actualFloor = getFloorForRoom(cleanRoom);
+    return {
+      valid: false,
+      error: actualFloor
+        ? `Room ${cleanRoom} is on the ${actualFloor}`
+        : `Room must start with ${info.prefix} for ${info.label}`,
+    };
+  }
+
+  // Check numeric range
+  if (info.prefix === "G") {
+    const num = parseInt(cleanRoom.substring(1), 10);
+    if (isNaN(num) || num < 1 || num > 30) {
+      return { valid: false, error: "Ground Floor rooms must be between G01 and G30" };
+    }
+  } else {
+    const num = parseInt(cleanRoom, 10);
+    if (isNaN(num) || num < info.min || num > info.max) {
+      return { valid: false, error: `Room number must be between ${info.min} and ${info.max}` };
+    }
+  }
+
+  return { valid: true };
+}
+
+// Student Photo Data URL Schema
+export const photoSchema = z
+  .string({ required_error: "Photo is required" })
+  .min(1, "Photo is required")
+  .refine((val) => val && val.startsWith("data:image/"), {
+    message: "Valid photo is required",
+  });
+
+// Password Rules Schema
+export const passwordRulesSchema = z
+  .string()
+  .min(8, "Password must be at least 8 characters")
+  .regex(/[A-Z]/, "Must include at least one uppercase letter")
+  .regex(/[a-z]/, "Must include at least one lowercase letter")
+  .regex(/[0-9]/, "Must include at least one number")
+  .regex(/[^A-Za-z0-9]/, "Must include at least one special character")
+  .refine(
+    (val) => val !== WORKFLOW_CONFIG.defaultPassword,
+    "New password cannot be the default password (DmiCE@1202)"
+  );
+
+/**
+ * Evaluates password strength from 0 to 100 with label
+ * @param {string} password
+ */
+export function getPasswordStrength(password = "") {
+  let score = 0;
+  if (!password) return { score: 0, label: "Empty", color: "bg-slate-300" };
+
+  if (password.length >= 8) score += 25;
+  if (password.length >= 12) score += 10;
+  if (/[A-Z]/.test(password)) score += 20;
+  if (/[a-z]/.test(password)) score += 15;
+  if (/[0-9]/.test(password)) score += 15;
+  if (/[^A-Za-z0-9]/.test(password)) score += 15;
+
+  if (password === WORKFLOW_CONFIG.defaultPassword) {
+    return { score: 10, label: "Default Password (Invalid)", color: "bg-rose-500" };
+  }
+
+  if (score < 40) return { score, label: "Weak", color: "bg-rose-500" };
+  if (score < 70) return { score, label: "Medium", color: "bg-amber-500" };
+  return { score: Math.min(100, score), label: "Strong", color: "bg-emerald-500" };
+}
+
+export const loginSchema = z.object({
+  role: z.enum(["student", "admin"]).optional(),
+  tab: z.enum(["student", "staff"]).optional(),
+  identifier: z.string().trim().min(1, "Identifier is required"),
+  password: z.string().min(1, "Password is required"),
+  rememberMe: z.boolean().default(true),
+});
+
+// Local Pass Form Schema
+export const localPassSchema = z
+  .object({
+    date: z.string().min(1, "Outing date is required"),
+    exitTime: z.string().min(1, "Exit time is required"),
+    returnTime: z.string().min(1, "Return time is required"),
+    destination: z
+      .string()
+      .trim()
+      .min(3, "Destination must be at least 3 characters")
+      .max(80, "Destination cannot exceed 80 characters"),
+    reason: z
+      .string()
+      .trim()
+      .min(10, "Please provide a reason of at least 10 characters")
+      .max(300, "Reason cannot exceed 300 characters"),
+    guardianPhone: indianPhoneSchema,
+    isEmergency: z.boolean().default(false),
+  })
+  .refine(
+    (data) => {
+      if (!data.exitTime || !data.returnTime) return true;
+      return data.returnTime > data.exitTime;
+    },
+    {
+      message: "Return time must be later than exit time",
+      path: ["returnTime"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (!data.returnTime) return true;
+      return data.returnTime <= (WORKFLOW_CONFIG.localPassLatestReturnTime || "21:00");
+    },
+    {
+      message: `Local pass return must be at or before ${WORKFLOW_CONFIG.localPassLatestReturnTime || "21:00"}`,
+      path: ["returnTime"],
+    }
+  );
+
+// Home Pass Form Schema
+export const homePassSchema = z
+  .object({
+    fromDate: z.string().min(1, "Departure date is required"),
+    exitTime: z.string().min(1, "Exit time is required"),
+    toDate: z.string().min(1, "Return date is required"),
+    returnTime: z.string().min(1, "Return time is required"),
+    destination: z
+      .string()
+      .trim()
+      .min(3, "Destination must be at least 3 characters")
+      .max(80, "Destination cannot exceed 80 characters"),
+    reason: z
+      .string()
+      .trim()
+      .min(10, "Please provide a reason of at least 10 characters")
+      .max(300, "Reason cannot exceed 300 characters"),
+    guardianPhone: indianPhoneSchema,
+    guardianConsent: z.boolean().refine((val) => val === true, {
+      message: "Guardian confirmation is required for Home Pass",
+    }),
+    isEmergency: z.boolean().default(false),
+  })
+  .refine(
+    (data) => {
+      if (!data.fromDate || !data.toDate) return true;
+      return data.toDate >= data.fromDate;
+    },
+    {
+      message: "Return date must be on or after departure date",
+      path: ["toDate"],
+    }
+  )
+  .refine(
+    (data) => {
+      if (!data.fromDate || !data.toDate) return true;
+      const start = new Date(data.fromDate).getTime();
+      const end = new Date(data.toDate).getTime();
+      const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+      return diffDays <= (WORKFLOW_CONFIG.maxHomePassDays || 15);
+    },
+    {
+      message: `Home pass duration cannot exceed ${WORKFLOW_CONFIG.maxHomePassDays || 15} days`,
+      path: ["toDate"],
+    }
+  );
+
+// Student Profile Form Schema (Updated Floor & Room format)
+export const studentProfileSchema = z.object({
+  name: nameSchema,
+  phone: indianPhoneSchema,
+  bloodGroup: z.string().min(1, "Select blood group"),
+  dob: z.string().optional(),
+  address: z.string().trim().min(5, "Home address must be at least 5 characters"),
+  floor: z.enum(["GF", "F2", "F3", "F4"]).optional().nullable(),
+  roomNumber: z.string().trim().optional().nullable(),
+  guardianName: nameSchema,
+  guardianRelation: z.string().min(1, "Guardian relation is required"),
+  guardianPhone: indianPhoneSchema,
+  guardianAltPhone: z.string().optional(),
+});
+
+// WIZARD SCHEMAS
+
+// Wizard Step 1: Account
+export const step1Schema = z.object({
+  name: nameSchema,
+  email: gmailSchema,
+  dept: z.enum(["CSE", "IT", "ECE", "EEE", "MECH", "CIVIL", "AI&DS"], {
+    message: "Select your engineering department",
+  }),
+  year: z.coerce.number().min(1).max(4),
+});
+
+// Wizard Step 2 Builder: Academic & Hostel Allocation
+export function getStep2Schema(allocationMode = "student_enters") {
+  const isStudentEnters = allocationMode === "student_enters";
+
+  let base = z.object({
+    regNo: regNoSchema,
+    programme: z.enum(["B.E.", "B.Tech", "M.E.", "MBA", "MCA", "Diploma"], {
+      message: "Select your academic programme",
+    }),
+    section: z.enum(["A", "B", "C"]).optional().or(z.literal("")),
+    phone: phoneSchema.optional().or(z.literal("")),
+    guardian: z
+      .object({
+        name: nameSchema.optional(),
+        relation: z.enum(["Father", "Mother", "Guardian", "Other"]).optional(),
+        phone: phoneSchema.optional(),
+      })
+      .optional(),
+    guardianName: z.string().optional(),
+    guardianPhone: z.string().optional(),
+    guardianRelation: z.string().optional(),
+    floor: isStudentEnters
+      ? z.enum(["GF", "F2", "F3", "F4"], { message: "Select your hostel floor" })
+      : z.string().optional().nullable(),
+    roomNo: isStudentEnters
+      ? roomNoSchema
+      : z.string().optional().nullable(),
+  });
+
+  return base
+    .refine((data) => {
+      if (data.phone && data.guardian?.phone) {
+        return data.phone !== data.guardian.phone;
+      }
+      return true;
+    }, {
+      message: "Guardian phone number must differ from student mobile",
+      path: ["guardian", "phone"],
+    })
+    .refine(
+      (data) => {
+        if (!isStudentEnters) return true;
+        if (!data.floor || !data.roomNo) return true;
+        const check = validateRoomMatchesFloor(data.floor, data.roomNo);
+        return check.valid;
+      },
+      (data) => {
+        const check = validateRoomMatchesFloor(data.floor, data.roomNo);
+        return {
+          message: check.error || "Room number prefix must match floor",
+          path: ["roomNo"],
+        };
+      }
+    );
+}
+
+export const step2Schema = getStep2Schema("student_enters");
+
+// Wizard Step 3: Student Photo
+export const step3Schema = z.object({
+  photoDataUrl: photoSchema,
+});
+
+// Unified Registration Schema
+export function getRegisterSchema(allocationMode = "student_enters") {
+  const step2 = getStep2Schema(allocationMode);
+
+  return step1Schema
+    .and(step2)
+    .and(step3Schema)
+    .and(
+      z.object({
+        termsAccepted: z.boolean().optional(),
+      })
+    );
+}
+
+export const registerSchema = getRegisterSchema("student_enters");
+
+// Sign Up Schema (Alias for backwards compatibility)
+export const signUpSchema = registerSchema;
+
+// Password Reset Schemas
+export const forgotPasswordSchema = z.object({
+  identifier: z.string().trim().min(1, "Student ID or Staff Email is required"),
+});
+
+export const resetPasswordSchema = z
+  .object({
+    password: passwordRulesSchema,
+    confirmPassword: z.string().min(1, "Confirm password is required"),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+export const forceChangePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: passwordRulesSchema,
+    confirmPassword: z.string().min(1, "Confirm password is required"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => data.newPassword !== data.currentPassword, {
+    message: "New password cannot be the current password",
+    path: ["newPassword"],
+  });
+
+export default {
+  studentIdSchema,
+  gmailSchema,
+  nameSchema,
+  phoneSchema,
+  indianPhoneSchema,
+  regNoSchema,
+  roomNoSchema,
+  photoSchema,
+  computeBatch,
+  getFloorForRoom,
+  validateRoomMatchesFloor,
+  step1Schema,
+  step2Schema,
+  step3Schema,
+  getStep2Schema,
+  getRegisterSchema,
+  registerSchema,
+  passwordRulesSchema,
+  getPasswordStrength,
+  loginSchema,
+  localPassSchema,
+  homePassSchema,
+  studentProfileSchema,
+  signUpSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  forceChangePasswordSchema,
+};
