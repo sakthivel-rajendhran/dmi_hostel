@@ -143,6 +143,10 @@ export async function getStudentById(studentId) {
     hostelVerification: userObj.hostelVerification || base.hostelVerification || (floor ? "verified" : "unallocated"),
     guardianName: userObj.guardianName !== undefined ? userObj.guardianName : base.guardianName || "",
     guardianPhone: userObj.guardianPhone !== undefined ? userObj.guardianPhone : base.guardianPhone || "",
+    fatherName: userObj.fatherName || base.fatherName || (userObj.guardianRelation === "Father" ? userObj.guardianName : "David Kumar"),
+    fatherPhone: userObj.fatherPhone || base.fatherPhone || (userObj.guardianRelation === "Father" ? userObj.guardianPhone : "9876500001"),
+    motherName: userObj.motherName || base.motherName || "Mary Kumar",
+    motherPhone: userObj.motherPhone || base.motherPhone || userObj.guardianAltPhone || "9876500002",
     phone: userObj.phone !== undefined ? userObj.phone : base.phone || "",
     photo: userObj.photo || base.photo || userObj.photoDataUrl || base.photoDataUrl || null,
     photoDataUrl: userObj.photoDataUrl || base.photoDataUrl || userObj.photo || base.photo || null,
@@ -262,53 +266,96 @@ export async function getProfileCompleteness(studentId) {
   const missing = [];
   const missingKeys = [];
 
-  // 1. Photo is required
+  // 14 Applicable Profile Fields Breakdown:
+  // Group A: Student Information (6 fields)
+  // 1. Profile Photograph
   if (!s.photo && !s.photoDataUrl) {
-    missing.push("Profile Photo");
+    missing.push("Profile Photograph");
     missingKeys.push("photo");
   }
-
-  // 2. Phone
+  // 2. Department
+  if (!s.dept && !s.department) {
+    missing.push("Department");
+    missingKeys.push("department");
+  }
+  // 3. Academic Year
+  if (!s.year) {
+    missing.push("Academic Year");
+    missingKeys.push("year");
+  }
+  // 4. Phone Number
   if (!s.phone || String(s.phone).trim() === "") {
     missing.push("Phone Number");
     missingKeys.push("phone");
   }
-
-  // 3. Guardian Name
-  if (!s.guardianName || String(s.guardianName).trim() === "") {
-    missing.push("Guardian Name");
-    missingKeys.push("guardianName");
+  // 5. Registration Number
+  if (!s.regNo && !s.regNumber) {
+    missing.push("Registration Number");
+    missingKeys.push("regNo");
+  }
+  // 6. Room Number
+  if (!s.room && !s.roomNo && !s.roomNumber) {
+    missing.push("Room Number");
+    missingKeys.push("roomNumber");
   }
 
-  // 4. Guardian Phone
-  if (!s.guardianPhone || String(s.guardianPhone).trim() === "") {
-    missing.push("Guardian Phone");
-    missingKeys.push("guardianPhone");
+  // Group B: Additional Information (4 fields)
+  // 7. College Email
+  if (!s.email && !s.collegeEmail) {
+    missing.push("College Email");
+    missingKeys.push("email");
   }
-
-  // 5. Home Address
-  if (!s.address || String(s.address).trim() === "") {
-    missing.push("Home Address");
-    missingKeys.push("address");
+  // 8. Date of Birth
+  if (!s.dob || String(s.dob).trim() === "") {
+    missing.push("Date of Birth");
+    missingKeys.push("dob");
   }
-
-  // 6. Blood Group
+  // 9. Blood Group
   if (!s.bloodGroup || String(s.bloodGroup).trim() === "") {
     missing.push("Blood Group");
     missingKeys.push("bloodGroup");
   }
+  // 10. Address
+  if (!s.address || String(s.address).trim() === "") {
+    missing.push("Address");
+    missingKeys.push("address");
+  }
 
-  const isUnallocated = s.hostelVerification === "unallocated";
-  const totalRequired = 6;
+  // Group C: Parent Details (4 fields)
+  // 11. Father Name
+  if (!s.fatherName || String(s.fatherName).trim() === "") {
+    missing.push("Father Name");
+    missingKeys.push("fatherName");
+  }
+  // 12. Father Phone Number
+  if (!s.fatherPhone || String(s.fatherPhone).trim() === "") {
+    missing.push("Father Phone Number");
+    missingKeys.push("fatherPhone");
+  }
+  // 13. Mother Name
+  if (!s.motherName || String(s.motherName).trim() === "") {
+    missing.push("Mother Name");
+    missingKeys.push("motherName");
+  }
+  // 14. Mother Phone Number
+  if (!s.motherPhone || String(s.motherPhone).trim() === "") {
+    missing.push("Mother Phone Number");
+    missingKeys.push("motherPhone");
+  }
+
+  // Guardian fields are optional and do not affect profile completion
+  const totalRequired = 14;
   const filledCount = totalRequired - missing.length;
   const percentage = Math.max(0, Math.min(100, Math.round((filledCount / totalRequired) * 100)));
 
   return successResponse({
     complete: missing.length === 0,
     percentage,
+    filledCount,
+    totalRequired,
     missingFields: missing,
     missingFieldKeys: missingKeys,
-    isUnallocated,
+    isUnallocated: s.hostelVerification === "unallocated",
   });
 }
 
@@ -618,9 +665,20 @@ export async function updateStudent(studentId, patch) {
     const floorLabel = flConfig ? flConfig.label : (patch.floorLabel || cur.floorLabel || null);
     const room = patch.roomNo !== undefined ? patch.roomNo : (patch.room !== undefined ? patch.room : cur.room);
 
+    const guardianName =
+      patch.guardianName !== undefined
+        ? (patch.guardianName.trim() === "" ? cur.guardianName : patch.guardianName)
+        : cur.guardianName;
+    const guardianPhone =
+      patch.guardianPhone !== undefined
+        ? (patch.guardianPhone.trim() === "" ? cur.guardianPhone : patch.guardianPhone)
+        : cur.guardianPhone;
+
     updatedUser = {
       ...cur,
       ...patch,
+      guardianName,
+      guardianPhone,
       floor,
       floorLabel,
       room,
@@ -644,9 +702,20 @@ export async function updateStudent(studentId, patch) {
     const floorLabel = flConfig ? flConfig.label : (patch.floorLabel || cur.floorLabel || null);
     const room = patch.roomNo !== undefined ? patch.roomNo : (patch.room !== undefined ? patch.room : cur.room);
 
+    const guardianName =
+      patch.guardianName !== undefined
+        ? (patch.guardianName.trim() === "" ? cur.guardianName : patch.guardianName)
+        : cur.guardianName;
+    const guardianPhone =
+      patch.guardianPhone !== undefined
+        ? (patch.guardianPhone.trim() === "" ? cur.guardianPhone : patch.guardianPhone)
+        : cur.guardianPhone;
+
     updatedStudent = {
       ...cur,
       ...patch,
+      guardianName,
+      guardianPhone,
       floor,
       floorLabel,
       room,

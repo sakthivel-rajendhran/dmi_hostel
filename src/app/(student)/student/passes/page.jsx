@@ -17,7 +17,6 @@ import {
   XCircle,
   RotateCcw,
   AlertTriangle,
-  ArrowUpDown,
   CheckCircle2,
   Calendar,
 } from "lucide-react";
@@ -37,14 +36,9 @@ import { DataTable } from "@/components/ui/DataTable.jsx";
 const STATUS_FILTERS = [
   { id: "all", label: "All" },
   { id: PASS_STATUSES.PENDING, label: "Pending" },
-  { id: PASS_STATUSES.RECOMMENDED, label: "Recommended" },
   { id: PASS_STATUSES.APPROVED, label: "Approved" },
   { id: PASS_STATUSES.GATE_PASS_ISSUED, label: "Gate Pass Issued" },
-  { id: PASS_STATUSES.OUT, label: "Out" },
-  { id: PASS_STATUSES.RETURNED, label: "Returned" },
-  { id: PASS_STATUSES.OVERDUE, label: "Overdue" },
   { id: PASS_STATUSES.REJECTED, label: "Rejected" },
-  { id: PASS_STATUSES.CANCELLED, label: "Cancelled" },
 ];
 
 export default function StudentPassesPage() {
@@ -58,14 +52,13 @@ export default function StudentPassesPage() {
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedType, setSelectedType] = useState("all"); // 'all' | 'local' | 'home'
-  const [sortOrder, setSortOrder] = useState("newest"); // 'newest' | 'oldest'
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
   // Cancel dialog state
   const [passToCancel, setPassToCancel] = useState(null);
 
-  // Filter & sort logic
+  // Filter & sort logic (Always descending chronological: newest to oldest)
   const filteredPasses = useMemo(() => {
     let result = [...passes];
 
@@ -88,14 +81,18 @@ export default function StudentPassesPage() {
       result = result.filter((p) => (p.type || "").toLowerCase().includes(selectedType));
     }
 
+    // Automatically sort descending: newest to oldest by creation/submission timestamp
     result.sort((a, b) => {
-      const dateA = new Date(a.departureTime || a.fromTime || a.appliedAt).getTime();
-      const dateB = new Date(b.departureTime || b.fromTime || b.appliedAt).getTime();
-      return sortOrder === "newest" ? dateB - dateA : dateA - dateB;
+      const getTimestamp = (p) => {
+        const val = p.appliedAt || p.createdAt || p.departureTime || p.fromTime;
+        const t = val ? new Date(val).getTime() : 0;
+        return isNaN(t) ? 0 : t;
+      };
+      return getTimestamp(b) - getTimestamp(a);
     });
 
     return result;
-  }, [passes, search, selectedStatus, selectedType, sortOrder]);
+  }, [passes, search, selectedStatus, selectedType]);
 
   // Desktop Table Columns
   const tableColumns = useMemo(
@@ -286,24 +283,16 @@ export default function StudentPassesPage() {
   return (
     <div className="space-y-4 pb-[calc(var(--tabbar-h)+1.5rem)] lg:pb-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-            My Passes
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-bold">
-              {filteredPasses.length}
-            </span>
-          </h2>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Track and manage your hostel permissions
+      <div>
+        <h2 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+          My Passes
+          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-bold">
+            {filteredPasses.length}
           </span>
-        </div>
-
-        <Link href="/student/apply">
-          <Button variant="primary" size="sm" leftIcon={PlusCircle} className="font-bold text-xs shadow-sm">
-            Apply Pass
-          </Button>
-        </Link>
+        </h2>
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          Track and manage your hostel permissions
+        </span>
       </div>
 
       {/* Search Input */}
@@ -335,35 +324,22 @@ export default function StudentPassesPage() {
         })}
       </div>
 
-      {/* Secondary Type & Sort Controls */}
-      <div className="flex items-center justify-between gap-2 text-xs">
-        {/* Type pills */}
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl">
-          {["all", "local", "home"].map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setSelectedType(t)}
-              className={`px-2.5 py-1 rounded-lg font-bold capitalize transition ${
-                selectedType === t
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
-                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-              }`}
-            >
-              {t === "all" ? "All Types" : t}
-            </button>
-          ))}
-        </div>
-
-        {/* Sort toggle */}
-        <button
-          type="button"
-          onClick={() => setSortOrder(sortOrder === "newest" ? "oldest" : "newest")}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 font-medium transition"
-        >
-          <ArrowUpDown className="w-3.5 h-3.5 text-primary" />
-          <span>{sortOrder === "newest" ? "Newest" : "Oldest"}</span>
-        </button>
+      {/* Secondary Type Controls */}
+      <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl w-fit text-xs">
+        {["all", "local", "home"].map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setSelectedType(t)}
+            className={`px-2.5 py-1 rounded-lg font-bold capitalize transition ${
+              selectedType === t
+                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            {t === "all" ? "All Types" : t}
+          </button>
+        ))}
       </div>
 
       {/* Passes List States */}

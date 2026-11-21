@@ -56,6 +56,13 @@ export function useMyActivePass(studentId) {
       if (!res.ok) throw new Error(res.message);
       const passes = res.data || [];
 
+      // Sort newest first by appliedAt / departureTime
+      const sorted = [...passes].sort((a, b) => {
+        const tA = new Date(a.appliedAt || a.departureTime || a.fromTime || 0).getTime();
+        const tB = new Date(b.appliedAt || b.departureTime || b.fromTime || 0).getTime();
+        return (isNaN(tB) ? 0 : tB) - (isNaN(tA) ? 0 : tA);
+      });
+
       // Prioritize overdue -> out -> gate_pass_issued -> approved
       const priorityOrder = [
         PASS_STATUSES.OVERDUE,
@@ -65,7 +72,7 @@ export function useMyActivePass(studentId) {
       ];
 
       for (const status of priorityOrder) {
-        const found = passes.find((p) => p.status === status);
+        const found = sorted.find((p) => p.status === status);
         if (found) return found;
       }
 

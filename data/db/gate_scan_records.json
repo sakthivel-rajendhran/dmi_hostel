@@ -1,0 +1,53 @@
+[
+  {
+    "id": "SCAN-1795233690015-qi8il",
+    "outpass_id": "OP-1795233689951-CU68M",
+    "student_id": "TEST-STU-9878",
+    "scan_type": "EXIT",
+    "scanned_by": "student_scan",
+    "gate_id": "MAIN",
+    "scanned_at": "2026-11-21T04:01:30.015Z",
+    "verification_status": "VERIFIED",
+    "qr_token_reference": "99f2590d5d90f582",
+    "device_location": {
+      "lat": 12.845,
+      "lng": 79.95,
+      "accuracy": 10
+    },
+    "created_at": "2026-11-21T04:01:30.016Z"
+  },
+  {
+    "id": "SCAN-1795233630328-8exl9",
+    "outpass_id": "OP-1795233630215-VA6WF",
+    "student_id": "TEST-STU-0111",
+    "scan_type": "EXIT",
+    "scanned_by": "student_scan",
+    "gate_id": "MAIN",
+    "scanned_at": "2026-11-21T04:00:30.328Z",
+    "verification_status": "VERIFIED",
+    "qr_token_reference": "99f2590d5d90f582",
+    "device_location": {
+      "lat": 12.845,
+      "lng": 79.95,
+      "accuracy": 10
+    },
+    "created_at": "2026-11-21T04:00:30.329Z"
+  },
+  {
+    "id": "SCAN-1795233563842-yc249",
+    "outpass_id": "OP-1795233563783-BXZHO",
+    "student_id": "TEST-STU-3769",
+    "scan_type": "EXIT",
+    "scanned_by": "student_scan",
+    "gate_id": "MAIN",
+    "scanned_at": "2026-11-21T03:59:23.842Z",
+    "verification_status": "REJECTED",
+    "qr_token_reference": "937377f056160fc4",
+    "device_location": {
+      "lat": 12.845,
+      "lng": 79.95,
+      "accuracy": 10
+    },
+    "created_at": "2026-11-21T03:59:23.842Z"
+  }
+]

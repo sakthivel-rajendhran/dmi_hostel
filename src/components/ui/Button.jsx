@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn.js";
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center font-semibold rounded-2xl transition-all duration-200 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]",
+  "inline-flex items-center justify-center flex-row whitespace-nowrap font-semibold rounded-2xl transition-all duration-200 select-none [&_svg]:shrink-0 [&_svg]:inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]",
   {
     variants: {
       variant: {
@@ -24,6 +24,7 @@ export const buttonVariants = cva(
           "text-primary-blue dark:text-indigo-400 hover:underline underline-offset-4 p-0 h-auto font-medium",
       },
       size: {
+        xs: "h-8 px-2.5 text-xs gap-1.5",
         sm: "h-9 px-3.5 text-xs gap-1.5",
         md: "h-11 px-5 text-sm gap-2",
         lg: "h-13 px-6 text-base gap-2.5",
@@ -42,6 +43,7 @@ export const Button = forwardRef(
       className,
       variant,
       size,
+      asChild = false,
       loading = false,
       isLoading,
       iconLeft: IconLeft,
@@ -65,11 +67,37 @@ export const Button = forwardRef(
       return <IconComp className="w-4 h-4 flex-shrink-0" />;
     };
 
+    const classes = cn(buttonVariants({ variant, size }), className);
+
+    if (asChild && React.isValidElement(children)) {
+      const childProps = children.props || {};
+      return React.cloneElement(children, {
+        ref,
+        className: cn(classes, childProps.className),
+        ...props,
+        children: (
+          <>
+            {isSpinning ? (
+              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+            ) : (
+              renderIcon(ResolvedLeft)
+            )}
+            {childProps.children != null && (
+              <span className="inline-flex items-center justify-center flex-row gap-2 whitespace-nowrap">
+                {childProps.children}
+              </span>
+            )}
+            {!isSpinning && renderIcon(ResolvedRight)}
+          </>
+        ),
+      });
+    }
+
     return (
       <button
         ref={ref}
         disabled={disabled || isSpinning}
-        className={cn(buttonVariants({ variant, size }), className)}
+        className={classes}
         {...props}
       >
         {isSpinning ? (
@@ -77,7 +105,11 @@ export const Button = forwardRef(
         ) : (
           renderIcon(ResolvedLeft)
         )}
-        {children != null && <span>{children}</span>}
+        {children != null && (
+          <span className="inline-flex items-center justify-center flex-row gap-2 whitespace-nowrap">
+            {children}
+          </span>
+        )}
         {!isSpinning && renderIcon(ResolvedRight)}
       </button>
     );

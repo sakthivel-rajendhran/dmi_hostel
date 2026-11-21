@@ -314,14 +314,6 @@ export function DashboardShell({ children }) {
             <PwaInstallPrompt variant="pill" />
             <NotificationBell />
 
-            <button
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              aria-label="Toggle theme"
-            >
-              {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-
             {/* User Dropdown */}
             <div className="relative">
               <button

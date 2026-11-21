@@ -4,5 +4,4 @@
  */
 
 export const MOCK_PASSES = [];
-
 export default MOCK_PASSES;

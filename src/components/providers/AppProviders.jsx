@@ -76,7 +76,7 @@ export function AppProviders({ children }) {
         },
       }}
     >
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+      <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false}>
         <IdleTimeoutProvider>
           <OfflineBanner />
           {children}
