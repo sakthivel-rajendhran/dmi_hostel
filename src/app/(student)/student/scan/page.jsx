@@ -149,6 +149,24 @@ export default function StudentGateScanPage() {
   const scannerRef = useRef(null);
   const isStoppingRef = useRef(false);
 
+  // Cleanup scanner cleanly
+  const stopScanner = useCallback(async () => {
+    if (scannerRef.current && !isStoppingRef.current) {
+      isStoppingRef.current = true;
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+        await scannerRef.current.clear();
+      } catch (err) {
+        console.warn("Scanner stop cleanup error:", err);
+      } finally {
+        scannerRef.current = null;
+        isStoppingRef.current = false;
+      }
+    }
+  }, []);
+
   // Clock tick every second
   useEffect(() => {
     const timer = setInterval(() => {
@@ -156,6 +174,12 @@ export default function StudentGateScanPage() {
     }, 1000);
     return () => {
       clearInterval(timer);
+    };
+  }, []);
+
+  // Stop scanner on unmount
+  useEffect(() => {
+    return () => {
       stopScanner();
     };
   }, [stopScanner]);
@@ -179,24 +203,6 @@ export default function StudentGateScanPage() {
       },
       { enableHighAccuracy: true, timeout: 6000 }
     );
-  }, []);
-
-  // Cleanup scanner cleanly
-  const stopScanner = useCallback(async () => {
-    if (scannerRef.current && !isStoppingRef.current) {
-      isStoppingRef.current = true;
-      try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop();
-        }
-        await scannerRef.current.clear();
-      } catch (err) {
-        console.warn("Scanner stop cleanup error:", err);
-      } finally {
-        scannerRef.current = null;
-        isStoppingRef.current = false;
-      }
-    }
   }, []);
 
   // Initialize and start camera
