@@ -1,425 +1,580 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import Image from "next/image";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
+  Camera,
+  Pencil,
+  Save,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Info,
+  ChevronRight,
   User,
   Phone,
   Mail,
-  Home,
-  Shield,
-  Heart,
   Calendar,
+  Heart,
   MapPin,
-  Lock,
-  Camera,
-  Copy,
-  CheckCircle2,
-  AlertTriangle,
-  RotateCcw,
-  Save,
-  Moon,
-  Sun,
-  Laptop,
-  LogOut,
-  ChevronRight,
-  Sparkles,
-  Info,
+  Shield,
+  Building,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth.js";
 import { useMyProfile, useProfileCompleteness, useUpdateProfile } from "@/hooks/queries/useStudents.js";
-import { useTheme } from "next-themes";
-import { usePolicy } from "@/hooks/usePolicy.js";
-import { WORKFLOW_CONFIG } from "@/config/workflow.js";
-import { toTitleCase } from "@/lib/utils/string.js";
-import { studentProfileSchema, computeBatch, validateRoomMatchesFloor } from "@/lib/validators.js";
-
+import { studentProfileSchema } from "@/lib/validators.js";
 import { Button } from "@/components/ui/Button.jsx";
-import { Card } from "@/components/ui/Card.jsx";
-import { Avatar } from "@/components/ui/Avatar.jsx";
-import { Switch } from "@/components/ui/Switch.jsx";
 import { Modal } from "@/components/ui/Modal.jsx";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog.jsx";
-import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm.jsx";
-import { PhotoPicker } from "@/components/ui/PhotoPicker.jsx";
-import { PushNotificationCard } from "@/components/common/PushNotificationCard.jsx";
-import { PwaInstallPrompt } from "@/components/common/PwaInstallPrompt.jsx";
+import { ProfilePhotoCropModal } from "@/components/profile/ProfilePhotoCropModal.jsx";
+import { validatePhotoFile } from "@/lib/utils/image.js";
+import { cn } from "@/lib/utils/cn.js";
 
 const BLOOD_GROUPS = ["A+ve", "A-ve", "B+ve", "B-ve", "O+ve", "O-ve", "AB+ve", "AB-ve"];
 
+const YEAR_DISPLAY_MAP = {
+  1: "1st Year",
+  2: "2nd Year",
+  3: "3rd Year",
+  4: "4th Year",
+};
+
+// Helper to format student display name: First name in Title Case + Surname initial with period
+function formatStudentDisplayName(rawName) {
+  if (!rawName || typeof rawName !== "string") return "";
+  const trimmed = rawName.trim();
+  if (!trimmed) return "";
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) {
+    return parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+  }
+
+  const firstName = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+  const surname = parts[parts.length - 1];
+  const cleanSurname = surname.replace(/[^a-zA-Z]/g, "");
+  if (!cleanSurname) {
+    return trimmed;
+  }
+  const surnameInitial = cleanSurname.charAt(0).toUpperCase() + ".";
+  return `${firstName} ${surnameInitial}`;
+}
+
+// Helper to extract student initials for fallback avatar
+function getInitials(rawName) {
+  if (!rawName || typeof rawName !== "string") return "ST";
+  const trimmed = rawName.trim();
+  if (!trimmed) return "ST";
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
 export default function StudentProfilePage() {
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const { theme, setTheme } = useTheme();
-  const { policy } = usePolicy();
+  const { user } = useAuth();
   const studentId = user?.studentId || user?.id || "CSE-3-001";
 
   const { data: profile, isLoading } = useMyProfile(studentId);
   const { data: completeness } = useProfileCompleteness(studentId);
   const updateMutation = useUpdateProfile();
 
-  // Dialogs
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
-  const [tempPhotoDataUrl, setTempPhotoDataUrl] = useState(null);
-  const [showPwdModal, setShowPwdModal] = useState(false);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const [lastPwdChange, setLastPwdChange] = useState("Recently updated");
+  // Section Edit Modes
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isEditingParent, setIsEditingParent] = useState(false);
+  const [isEditingGuardian, setIsEditingGuardian] = useState(false);
+  const [isSavingSection, setIsSavingSection] = useState(null); // 'profile' | 'parent' | 'guardian' | null
 
-  // Notification Preferences
-  const [prefPassAlerts, setPrefPassAlerts] = useState(true);
-  const [prefCurfewReminders, setPrefCurfewReminders] = useState(true);
-  const [prefAnnouncements, setPrefAnnouncements] = useState(true);
+  // Photo Crop States
+  const fileInputRef = useRef(null);
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [selectedCropFile, setSelectedCropFile] = useState(null);
+  const [pendingPhotoFile, setPendingPhotoFile] = useState(null);
+  const [pendingPhotoPreview, setPendingPhotoPreview] = useState(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  // Field refs for completeness bar focus jumps
-  const phoneInputRef = useRef(null);
-  const floorInputRef = useRef(null);
-  const roomInputRef = useRef(null);
-  const guardianNameRef = useRef(null);
-  const guardianPhoneRef = useRef(null);
+  // Completion Breakdown Modal
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+
+  // Form field refs for jump-to-field from completion modal
+  const phoneRef = useRef(null);
+  const dobRef = useRef(null);
+  const bloodGroupRef = useRef(null);
+  const addressRef = useRef(null);
+  const fatherNameRef = useRef(null);
+  const fatherPhoneRef = useRef(null);
+  const motherNameRef = useRef(null);
+  const motherPhoneRef = useRef(null);
 
   // React Hook Form
   const {
     register,
     handleSubmit,
-    setValue,
     reset,
     watch,
-    formState: { isDirty, errors, isSubmitting },
+    formState: { isSubmitting, isDirty, errors },
   } = useForm({
     resolver: zodResolver(studentProfileSchema),
     mode: "onChange",
     defaultValues: {
-      name: "",
       phone: "",
-      bloodGroup: "O+ve",
-      dob: "2004-05-14",
+      dob: "",
+      bloodGroup: "",
       address: "",
-      floor: "GF",
-      roomNumber: "",
+      fatherName: "",
+      fatherPhone: "",
+      motherName: "",
+      motherPhone: "",
       guardianName: "",
-      guardianRelation: "Father",
       guardianPhone: "",
-      guardianAltPhone: "",
     },
   });
 
-  const selectedFloor = watch("floor");
-  const isHostelVerified = profile?.hostelVerification === "verified";
-  const isWardenAllocation = policy.roomAllocationMode === "warden_allocates";
-
-  // Populate form with profile data
+  // Populate form with existing student profile data
   useEffect(() => {
     if (profile) {
       reset({
-        name: profile.name || "",
         phone: profile.phone || "",
-        bloodGroup: profile.bloodGroup || "O+ve",
-        dob: profile.dob || "2004-05-14",
+        dob: profile.dob || "",
+        bloodGroup: profile.bloodGroup || "",
         address: profile.address || "",
-        floor: profile.floor || "GF",
-        roomNumber: profile.roomNumber || profile.room || profile.roomNo || "",
+        fatherName: profile.fatherName || "",
+        fatherPhone: profile.fatherPhone || "",
+        motherName: profile.motherName || "",
+        motherPhone: profile.motherPhone || "",
         guardianName: profile.guardianName || "",
-        guardianRelation: profile.guardianRelation || "Father",
         guardianPhone: profile.guardianPhone || "",
-        guardianAltPhone: profile.guardianAltPhone || "",
       });
-    }
-
-    if (typeof window !== "undefined") {
-      const lastChange = localStorage.getItem("dmi_last_pwd_change");
-      if (lastChange) {
-        setLastPwdChange(
-          new Date(lastChange).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })
-        );
-      }
     }
   }, [profile, reset]);
 
-  // Copy Student ID
-  const handleCopyId = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(studentId);
-      toast.success(`Copied Student ID: ${studentId}`);
-    }
-  };
+  // Form values watcher for real-time local completion calculation
+  const watchedValues = watch();
 
-  // Jump to missing field
-  const handleJumpToField = (fieldKey) => {
-    const refMap = {
-      phone: phoneInputRef,
-      floor: floorInputRef,
-      roomNumber: roomInputRef,
-      guardianName: guardianNameRef,
-      guardianPhone: guardianPhoneRef,
+  // 14-Field Dynamic Completion Calculation
+  const completionStats = useMemo(() => {
+    const photo = Boolean(pendingPhotoPreview || profile?.photo || profile?.photoDataUrl);
+    const department = Boolean(profile?.dept || profile?.department);
+    const year = Boolean(profile?.year);
+    const phone = Boolean(watchedValues.phone && watchedValues.phone.trim().length >= 10);
+    const regNo = Boolean(profile?.regNo || profile?.regNumber);
+    const room = Boolean(profile?.room || profile?.roomNo || profile?.roomNumber || profile?.floor);
+
+    const email = Boolean(profile?.email || profile?.collegeEmail);
+    const dob = Boolean(watchedValues.dob && watchedValues.dob.trim().length > 0);
+    const bloodGroup = Boolean(watchedValues.bloodGroup && watchedValues.bloodGroup.trim().length > 0);
+    const address = Boolean(watchedValues.address && watchedValues.address.trim().length >= 5);
+
+    const fatherName = Boolean(watchedValues.fatherName && watchedValues.fatherName.trim().length >= 2);
+    const fatherPhone = Boolean(watchedValues.fatherPhone && watchedValues.fatherPhone.trim().length >= 10);
+    const motherName = Boolean(watchedValues.motherName && watchedValues.motherName.trim().length >= 2);
+    const motherPhone = Boolean(watchedValues.motherPhone && watchedValues.motherPhone.trim().length >= 10);
+
+    const fields = [
+      { key: "photo", label: "Profile Photograph", group: "Student Information", complete: photo },
+      { key: "department", label: "Department", group: "Student Information", complete: department },
+      { key: "year", label: "Academic Year", group: "Student Information", complete: year },
+      { key: "phone", label: "Phone Number", group: "Student Information", complete: phone, ref: phoneRef },
+      { key: "regNo", label: "Registration Number", group: "Student Information", complete: regNo },
+      { key: "room", label: "Room Number", group: "Student Information", complete: room },
+
+      { key: "email", label: "College Email", group: "Additional Information", complete: email },
+      { key: "dob", label: "Date of Birth", group: "Additional Information", complete: dob, ref: dobRef },
+      { key: "bloodGroup", label: "Blood Group", group: "Additional Information", complete: bloodGroup, ref: bloodGroupRef },
+      { key: "address", label: "Address", group: "Additional Information", complete: address, ref: addressRef },
+
+      { key: "fatherName", label: "Father Name", group: "Parent Details", complete: fatherName, ref: fatherNameRef },
+      { key: "fatherPhone", label: "Father Phone Number", group: "Parent Details", complete: fatherPhone, ref: fatherPhoneRef },
+      { key: "motherName", label: "Mother Name", group: "Parent Details", complete: motherName, ref: motherNameRef },
+      { key: "motherPhone", label: "Mother Phone Number", group: "Parent Details", complete: motherPhone, ref: motherPhoneRef },
+    ];
+
+    const filledCount = fields.filter((f) => f.complete).length;
+    const totalRequired = 14;
+    const percentage = Math.round((filledCount / totalRequired) * 100);
+
+    return {
+      fields,
+      filledCount,
+      totalRequired,
+      percentage,
+      is100Percent: percentage === 100,
     };
-    const targetRef = refMap[fieldKey];
-    if (targetRef?.current) {
-      targetRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-      targetRef.current.focus();
+  }, [profile, pendingPhotoPreview, watchedValues]);
+
+  // Handle Photo File Selection
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    e.target.value = "";
+
+    const validation = await validatePhotoFile(file);
+    if (!validation.valid) {
+      toast.error(validation.error);
+      return;
+    }
+
+    setSelectedCropFile(file);
+    setShowCropModal(true);
+  };
+
+  // Confirm Cropped Photo
+  const handleConfirmCrop = (data) => {
+    setPendingPhotoFile(data.blob);
+    setPendingPhotoPreview(data.dataUrl);
+    setShowCropModal(false);
+    toast.success("Profile photo adjusted! Click Save to confirm changes.");
+  };
+
+  // Jump to specific field from completion modal
+  const handleJumpToField = (fieldRef) => {
+    setShowCompletionModal(false);
+    if (fieldRef && fieldRef.current) {
+      setIsEditingProfile(true);
+      setIsEditingParent(true);
+      setTimeout(() => {
+        fieldRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        fieldRef.current.focus();
+      }, 200);
     }
   };
 
-  // Auto Title Case Name on blur
-  const handleNameBlur = (e) => {
-    const titleCased = toTitleCase(e.target.value);
-    setValue("name", titleCased, { shouldDirty: true, shouldValidate: true });
-  };
-
-  // Form Submit Handler
-  const onSubmit = async (data) => {
+  // Section 1: Save Student Profile
+  const handleSaveProfileSection = async () => {
     try {
-      const flConfig = WORKFLOW_CONFIG.floors.find((f) => f.id === data.floor);
-      const floorLabel = flConfig ? flConfig.label : data.floor;
+      setIsSavingSection("profile");
+      let finalPhotoUrl = profile?.photo || profile?.photoDataUrl || null;
 
-      await updateMutation.mutateAsync({
-        studentId,
-        patch: {
-          ...data,
-          floorLabel,
-          room: data.roomNumber,
-          roomNo: data.roomNumber,
-        },
-      });
-      toast.success("Profile records updated successfully!");
-      reset(data);
+      if (pendingPhotoFile) {
+        setIsUploadingPhoto(true);
+        const formData = new FormData();
+        formData.append("file", pendingPhotoFile);
+        formData.append("studentId", studentId);
+
+        const uploadRes = await fetch("/api/student/photo", {
+          method: "POST",
+          body: formData,
+        });
+
+        const uploadJson = await uploadRes.json();
+        if (!uploadRes.ok || !uploadJson.ok) {
+          throw new Error(uploadJson.message || "Failed to upload profile photo.");
+        }
+        finalPhotoUrl = uploadJson.url;
+      }
+
+      const patch = {
+        phone: watchedValues.phone?.trim() || "",
+        dob: watchedValues.dob || "",
+        bloodGroup: watchedValues.bloodGroup || "",
+        address: watchedValues.address?.trim() || "",
+      };
+
+      if (finalPhotoUrl) {
+        patch.photo = finalPhotoUrl;
+        patch.photoDataUrl = finalPhotoUrl;
+      }
+
+      await updateMutation.mutateAsync({ studentId, patch });
+      setPendingPhotoFile(null);
+      setPendingPhotoPreview(null);
+      setIsEditingProfile(false);
+      toast.success("Student profile updated successfully!");
     } catch (err) {
       toast.error(err.message || "Failed to update profile.");
+    } finally {
+      setIsSavingSection(null);
+      setIsUploadingPhoto(false);
     }
   };
 
-  // Handle Photo Save
-  const handleSavePhoto = async () => {
-    if (!tempPhotoDataUrl) return;
-    try {
-      await updateMutation.mutateAsync({
-        studentId,
-        patch: {
-          photo: tempPhotoDataUrl,
-          photoDataUrl: tempPhotoDataUrl,
-        },
+  // Section 1: Cancel Student Profile
+  const handleCancelProfileSection = () => {
+    if (profile) {
+      reset({
+        ...watchedValues,
+        phone: profile.phone || "",
+        dob: profile.dob || "",
+        bloodGroup: profile.bloodGroup || "",
+        address: profile.address || "",
       });
-      setShowPhotoModal(false);
-      setTempPhotoDataUrl(null);
-      toast.success("Profile photo updated successfully!");
+    }
+    setPendingPhotoFile(null);
+    setPendingPhotoPreview(null);
+    setIsEditingProfile(false);
+  };
+
+  // Section 2: Save Parent Details
+  const handleSaveParentSection = async () => {
+    try {
+      setIsSavingSection("parent");
+      const patch = {
+        fatherName: watchedValues.fatherName?.trim() || "",
+        fatherPhone: watchedValues.fatherPhone?.trim() || "",
+        motherName: watchedValues.motherName?.trim() || "",
+        motherPhone: watchedValues.motherPhone?.trim() || "",
+      };
+
+      await updateMutation.mutateAsync({ studentId, patch });
+      setIsEditingParent(false);
+      toast.success("Parent details updated successfully!");
     } catch (err) {
-      toast.error(err.message || "Failed to update photo.");
+      toast.error(err.message || "Failed to update parent details.");
+    } finally {
+      setIsSavingSection(null);
     }
   };
 
-  // Handle Logout
-  const handleLogout = () => {
-    logout();
-    router.push("/");
+  // Section 2: Cancel Parent Details
+  const handleCancelParentSection = () => {
+    if (profile) {
+      reset({
+        ...watchedValues,
+        fatherName: profile.fatherName || "",
+        fatherPhone: profile.fatherPhone || "",
+        motherName: profile.motherName || "",
+        motherPhone: profile.motherPhone || "",
+      });
+    }
+    setIsEditingParent(false);
   };
 
-  // Hostel Verification Status Chip styling
-  const renderVerificationChip = () => {
-    const status = profile?.hostelVerification || (profile?.floor ? "verified" : "unallocated");
-    if (status === "verified") {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300/60">
-          <CheckCircle2 className="w-3 h-3" /> Hostel Verified
-        </span>
-      );
+  // Section 3: Save Guardian Details
+  const handleSaveGuardianSection = async () => {
+    try {
+      setIsSavingSection("guardian");
+      const patch = {
+        guardianName: watchedValues.guardianName?.trim() || "",
+        guardianPhone: watchedValues.guardianPhone?.trim() || "",
+      };
+
+      await updateMutation.mutateAsync({ studentId, patch });
+      setIsEditingGuardian(false);
+      toast.success("Guardian details updated successfully!");
+    } catch (err) {
+      toast.error(err.message || "Failed to update guardian details.");
+    } finally {
+      setIsSavingSection(null);
     }
-    if (status === "unallocated") {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300/60">
-          <Info className="w-3 h-3" /> Unallocated
-        </span>
-      );
-    }
-    if (status === "needs_correction") {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300/60">
-          <AlertTriangle className="w-3 h-3" /> Needs Correction
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300/60">
-        <AlertTriangle className="w-3 h-3" /> Pending Verification
-      </span>
-    );
   };
+
+  // Section 3: Cancel Guardian Details
+  const handleCancelGuardianSection = () => {
+    if (profile) {
+      reset({
+        ...watchedValues,
+        guardianName: profile.guardianName || "",
+        guardianPhone: profile.guardianPhone || "",
+      });
+    }
+    setIsEditingGuardian(false);
+  };
+
+  // Student Info variables
+  const studentName = profile?.name || user?.name || "Rahul Kumar";
+  const formattedDisplayName = useMemo(
+    () => formatStudentDisplayName(studentName),
+    [studentName]
+  );
+  const department = profile?.dept || profile?.department || "CSE";
+  const academicYear =
+    YEAR_DISPLAY_MAP[profile?.year] ||
+    (profile?.year ? `${profile.year}th Year` : "3rd Year");
+  const regNo = profile?.regNo || profile?.regNumber || "310622104045";
+  const roomNo = profile?.roomNumber || profile?.room || profile?.roomNo || "304";
+  const studentUid = profile?.studentId || user?.studentId || studentId;
+  const hasPhoto = Boolean(pendingPhotoPreview || profile?.photo || profile?.photoDataUrl);
+  const studentInitials = useMemo(() => getInitials(studentName), [studentName]);
+  const activePhoto =
+    pendingPhotoPreview ||
+    profile?.photo ||
+    profile?.photoDataUrl ||
+    "";
+
+  // SVG Circular Ring Constants
+  const ringRadius = 50;
+  const ringCircumference = 2 * Math.PI * ringRadius; // ~314.159
+  const ringOffset = ringCircumference * (1 - completionStats.percentage / 100);
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-5 pb-[calc(var(--tabbar-h)+1.5rem)] lg:pb-8 select-none animate-in fade-in duration-300">
-      {/* 1. HERO IDENTITY CARD */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/10 via-primary-light/5 to-transparent border border-slate-200/80 dark:border-slate-800 p-5 shadow-sm">
-        <div className="flex items-center gap-3.5">
-          {/* Avatar with Photo Upload Trigger */}
-          <div className="relative group shrink-0">
-            {profile?.photo || profile?.photoDataUrl ? (
-              <div className="relative w-16 h-16 rounded-full overflow-hidden ring-4 ring-primary/20 shadow-md">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={profile.photo || profile.photoDataUrl}
-                  alt={profile?.name || "Student"}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            ) : (
-              <Avatar
-                name={profile?.name || user?.name || "Rahul Kumar"}
-                size="xl"
-                status="online"
-                className="ring-4 ring-primary/20 shadow-md"
-              />
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                setTempPhotoDataUrl(null);
-                setShowPhotoModal(true);
-              }}
-              aria-label="Change photo"
-              className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-primary text-white hover:bg-primary-hover shadow-md transition transform active:scale-95"
-            >
-              <Camera className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-extrabold text-slate-900 dark:text-white leading-tight truncate">
-                {profile?.name || user?.name || "Rahul Kumar"}
-              </h2>
-              {renderVerificationChip()}
-            </div>
-
-            <div className="flex items-center gap-1.5 mt-1">
-              <button
-                type="button"
-                onClick={handleCopyId}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-xs font-bold border border-slate-200 dark:border-slate-700 hover:border-primary transition"
-                title="Click to copy ID"
-              >
-                <span>{studentId}</span>
-                <Copy className="w-3 h-3 text-slate-400" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-              {profile?.department || "CSE"} • Year {profile?.year || 3} •{" "}
-              {profile?.floorLabel && profile?.roomNo
-                ? `${profile.floorLabel} • Room ${profile.roomNo}`
-                : "Room: Awaiting Allocation"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Profile Completeness Bar */}
-      {completeness && (
-        <div className="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold">
-            <span className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              Profile Completeness
-            </span>
-            <span className="font-mono text-primary">{completeness.percentage}%</span>
-          </div>
-
-          <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+    <div className="w-full max-w-4xl mx-auto space-y-5 pb-28 md:pb-12 text-slate-800 select-none animate-in fade-in duration-300">
+      
+      {/* ========================================================= */}
+      {/* 1. STUDENT PROFILE CARD (TWO SEPARATE AREAS: PHOTO & INFO)*/}
+      {/* ========================================================= */}
+      <div className="relative bg-white border border-slate-200/80 rounded-2xl sm:rounded-3xl shadow-sm overflow-hidden p-4 sm:p-6 md:p-8 space-y-4">
+        {/* Horizontal Layout: Left Side (Large Photo Area) + Right Side (Separate Student Details Container) */}
+        <div className="flex flex-row items-center sm:items-stretch gap-3 sm:gap-6 md:gap-8">
+          
+          {/* ===================================================== */}
+          {/* 1. LEFT SECTION: Large Circular Profile Photo         */}
+          {/* Green-marked area reference (230-260px on desktop)   */}
+          {/* ===================================================== */}
+          <div className="flex flex-col items-center justify-center shrink-0 w-28 sm:w-44 md:w-56 lg:w-[260px] my-auto self-center">
             <div
-              className={`h-full transition-all duration-500 ${
-                completeness.percentage === 100
-                  ? "bg-emerald-500"
-                  : completeness.percentage > 50
-                  ? "bg-primary"
-                  : "bg-amber-500"
-              }`}
-              style={{ width: `${completeness.percentage}%` }}
+              className={cn(
+                "relative w-28 h-28 sm:w-40 sm:h-40 md:w-52 md:h-52 lg:w-[250px] lg:h-[250px] rounded-full overflow-hidden border-2 border-slate-200/90 bg-slate-100 shadow-sm flex items-center justify-center aspect-square group",
+                isEditingProfile && "cursor-pointer"
+              )}
+              onClick={() => {
+                if (isEditingProfile) {
+                  fileInputRef.current?.click();
+                } else {
+                  setShowCompletionModal(true);
+                }
+              }}
+              title={isEditingProfile ? "Click to change photo" : "Click to view completion details"}
+            >
+              {hasPhoto ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={activePhoto}
+                  alt={formattedDisplayName}
+                  className="w-full h-full object-cover object-center"
+                />
+              ) : (
+                <div
+                  data-testid="student-initials-fallback"
+                  className="w-full h-full flex items-center justify-center bg-primary/10 text-primary font-bold text-2xl sm:text-4xl lg:text-5xl select-none"
+                >
+                  {studentInitials}
+                </div>
+              )}
+
+              {pendingPhotoPreview && (
+                <span className="absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] sm:text-xs font-extrabold bg-primary text-white shadow border border-white animate-pulse">
+                  Pending
+                </span>
+              )}
+
+              {/* Edit Mode Camera Overlay */}
+              {isEditingProfile && (
+                <div className="absolute inset-0 bg-black/35 flex items-center justify-center transition opacity-90 hover:opacity-100">
+                  <Camera className="w-6 h-6 sm:w-8 sm:h-8 text-white drop-shadow" />
+                </div>
+              )}
+            </div>
+
+            {/* Hidden file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileSelect}
+              className="hidden"
+              aria-hidden="true"
             />
           </div>
 
-          {!completeness.complete && completeness.missingFields?.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-[10px] text-slate-500">Missing fields:</span>
-              {completeness.missingFields.map((field, i) => (
-                <button
-                  key={field}
-                  type="button"
-                  onClick={() => handleJumpToField(completeness.missingFieldKeys?.[i])}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition"
-                >
-                  {field} &rarr;
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 2. MAIN FORM SECTIONS: 2-Column Responsive Layout on Desktop */}
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left Column (6 cols on lg): Personal, Academic, Notifications */}
-          <div className="space-y-5 lg:col-span-6">
-            {/* PERSONAL DETAILS */}
-            <Card className="p-4 space-y-3.5">
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-primary" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Personal Information
-                </h3>
-              </div>
-
+          {/* ===================================================== */}
+          {/* 2. RIGHT SECTION: Separate Student Details Container  */}
+          {/* Red-marked area reference                             */}
+          {/* ===================================================== */}
+          <div className="flex-1 min-w-0 bg-slate-50/70 border border-slate-200/80 rounded-2xl p-3.5 sm:p-5 md:p-6 shadow-xs flex flex-col justify-between">
+            {isEditingProfile ? (
+              /* Editable Mode Form */
               <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    {...register("name")}
-                    onBlur={handleNameBlur}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  {errors.name && (
-                    <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.name.message}</p>
-                  )}
+                {/* 1. Student Name - TOP */}
+                <div className="flex items-start justify-between gap-2 pb-1.5 border-b border-slate-200/70">
+                  <div>
+                    <h2
+                      data-testid="student-display-name"
+                      className="student-display-name text-base sm:text-lg md:text-xl font-bold text-slate-900 leading-snug break-words"
+                    >
+                      {formattedDisplayName}
+                    </h2>
+                    <span className="text-[10px] font-medium text-slate-500">Editing Profile Information</span>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {/* 2. Student Details - MIDDLE (Two-column grid) */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  {/* Row 1: Year | Department */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Mobile Phone
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      Year
                     </label>
                     <input
-                      ref={(e) => {
-                        register("phone").ref(e);
-                        phoneInputRef.current = e;
-                      }}
-                      type="tel"
-                      {...register("phone")}
-                      placeholder="e.g. 9876543210"
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      type="text"
+                      value={academicYear}
+                      readOnly
+                      disabled
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100/80 text-slate-700 text-xs sm:text-sm font-semibold cursor-not-allowed"
                     />
-                    {errors.phone && (
-                      <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.phone.message}</p>
-                    )}
+                  </div>
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      Department
+                    </label>
+                    <input
+                      type="text"
+                      value={department}
+                      readOnly
+                      disabled
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100/80 text-slate-700 text-xs sm:text-sm font-semibold cursor-not-allowed uppercase"
+                    />
                   </div>
 
+                  {/* Row 2: Mobile No. | U.ID */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Blood Group
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      Mobile No.
+                    </label>
+                    <input
+                      type="tel"
+                      maxLength={10}
+                      ref={phoneRef}
+                      {...register("phone")}
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 text-xs sm:text-sm font-semibold"
+                      placeholder="10-digit mobile"
+                    />
+                    {errors.phone && (
+                      <p className="text-[9px] font-bold text-red-500 mt-0.5">
+                        {errors.phone.message}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      U.ID
+                    </label>
+                    <input
+                      type="text"
+                      value={studentUid}
+                      readOnly
+                      disabled
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100/80 text-slate-700 text-xs sm:text-sm font-mono font-semibold cursor-not-allowed"
+                    />
+                  </div>
+
+                  {/* Row 3: Room No. | B. Group */}
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      Room No.
+                    </label>
+                    <input
+                      type="text"
+                      value={roomNo}
+                      readOnly
+                      disabled
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100/80 text-slate-700 text-xs sm:text-sm font-semibold cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      B. Group
                     </label>
                     <select
+                      ref={bloodGroupRef}
                       {...register("bloodGroup")}
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 text-xs sm:text-sm font-semibold"
                     >
+                      <option value="">Select</option>
                       {BLOOD_GROUPS.map((bg) => (
                         <option key={bg} value={bg}>
                           {bg}
@@ -427,409 +582,543 @@ export default function StudentProfilePage() {
                       ))}
                     </select>
                   </div>
+
+                  {/* Row 4: Register No. | D.O.B. */}
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      Register No.
+                    </label>
+                    <input
+                      type="text"
+                      value={regNo}
+                      readOnly
+                      disabled
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100/80 text-slate-700 text-[11px] sm:text-xs font-mono font-semibold cursor-not-allowed tracking-tight"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      D.O.B.
+                    </label>
+                    <input
+                      type="date"
+                      max={new Date().toISOString().split("T")[0]}
+                      ref={dobRef}
+                      {...register("dob")}
+                      className="w-full px-1.5 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 text-[11px] sm:text-xs font-semibold"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Permanent Address
+                {/* 3. Address - BOTTOM */}
+                <div className="pt-2 sm:pt-2.5 border-t border-slate-200/70">
+                  <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5 uppercase tracking-wider">
+                    Address
                   </label>
                   <textarea
                     rows={2}
+                    ref={addressRef}
                     {...register("address")}
-                    placeholder="Door No, Street Name, City, Pincode"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 resize-none leading-relaxed"
+                    placeholder="Enter full address"
                   />
+                  {errors.address && (
+                    <p className="text-[9px] font-bold text-red-500 mt-0.5">
+                      {errors.address.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Edit Mode Actions */}
+                <div className="pt-2.5 border-t border-slate-200/70 flex flex-row items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleCancelProfileSection}
+                    disabled={isSavingSection === "profile"}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 transition active:scale-95 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <Button
+                    type="button"
+                    onClick={handleSaveProfileSection}
+                    disabled={isSavingSection === "profile"}
+                    loading={isSavingSection === "profile"}
+                    leftIcon={isSavingSection === "profile" ? undefined : Save}
+                    size="sm"
+                    className="min-w-[90px] bg-primary hover:bg-primary-hover text-white font-bold"
+                  >
+                    Save
+                  </Button>
                 </div>
               </div>
-            </Card>
-
-            {/* ACADEMIC RECORDS */}
-            <Card className="p-4 space-y-3.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-primary" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                    Academic Records
-                  </h3>
+            ) : (
+              /* Clean Static Digital ID-Card Display */
+              <div className="space-y-2.5 sm:space-y-3.5">
+                {/* 1. Student Name - TOP with Edit Button at Top-Right of this section */}
+                <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-200/80">
+                  <h2
+                    data-testid="student-display-name"
+                    className="student-display-name text-base sm:text-xl md:text-2xl font-bold text-slate-900 leading-snug break-words"
+                  >
+                    {formattedDisplayName}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingProfile(true)}
+                    aria-label="Edit Student Profile"
+                    title="Edit Student Profile"
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white hover:bg-slate-100 border border-slate-200/90 shadow-xs flex items-center justify-center text-slate-600 hover:text-primary transition-all duration-150 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer shrink-0"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                  <Lock className="w-3 h-3" /> Locked
-                </span>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <span className="block text-slate-500 text-[11px] mb-1">Register Number</span>
-                  <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900/60 font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800">
-                    {profile?.regNo || profile?.regNumber || "310622104045"}
+                {/* 2. Student Details - MIDDLE (Two-column grid) */}
+                <div className="grid grid-cols-2 gap-x-2.5 gap-y-2 sm:gap-x-5 sm:gap-y-3">
+                  {/* Row 1: Year | Department */}
+                  <div>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Year
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                      {academicYear}
+                    </span>
                   </div>
-                </div>
-
-                <div>
-                  <span className="block text-slate-500 text-[11px] mb-1">Degree Programme</span>
-                  <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900/60 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800">
-                    {profile?.programme || "B.E."}
-                  </div>
-                </div>
-
-                <div>
-                  <span className="block text-slate-500 text-[11px] mb-1">Department & Section</span>
-                  <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900/60 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800">
-                    {profile?.department || "CSE"} - Sec {profile?.section || "A"}
-                  </div>
-                </div>
-
-                <div>
-                  <span className="block text-slate-500 text-[11px] mb-1">Academic Batch</span>
-                  <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900/60 font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800">
-                    {profile?.batch || computeBatch(profile?.year || 3, 4)}
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            {/* NOTIFICATION PREFERENCES */}
-            <Card className="p-4 space-y-3">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                Notification Settings
-              </span>
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-700 dark:text-slate-300">Pass Approval Notifications</span>
-                  <Switch checked={prefPassAlerts} onChange={setPrefPassAlerts} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-700 dark:text-slate-300">Return Curfew Reminders</span>
-                  <Switch checked={prefCurfewReminders} onChange={setPrefCurfewReminders} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-700 dark:text-slate-300">Hostel Circulars & Notices</span>
-                  <Switch checked={prefAnnouncements} onChange={setPrefAnnouncements} />
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* Right Column (6 cols on lg): Hostel, Guardian, Security, PWA, Logout */}
-          <div className="space-y-5 lg:col-span-6">
-            {/* HOSTEL ACCOMMODATION */}
-            <Card className="p-4 space-y-3.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Home className="w-4 h-4 text-primary" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                    Hostel Accommodation
-                  </h3>
-                </div>
-                {renderVerificationChip()}
-              </div>
-
-              {/* Conditional based on active policy */}
-              {isWardenAllocation ? (
-                /* Mode: warden_allocates */
-                <div className="space-y-3">
-                  <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
-                    <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <span>
-                      Hostel room allocations are assigned centrally by the Chief Warden. Contact the
-                      warden office for allocation or transfer requests.
+                  <div>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Department
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-800 uppercase">
+                      {department}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <span className="block text-slate-500 text-[11px] mb-1">Allocated Floor</span>
-                      <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900/60 font-bold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800">
-                        {profile?.floorLabel || "Not allocated yet"}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="block text-slate-500 text-[11px] mb-1">Allocated Room</span>
-                      <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-900/60 font-mono font-bold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800">
-                        {profile?.roomNo || profile?.room || "Not allocated yet"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* Mode: student_enters */
-                <div className="space-y-3">
-                  {isHostelVerified && (
-                    <div className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-2">
-                      <Lock className="w-3.5 h-3.5 shrink-0" />
-                      <span>Hostel allocation verified by Warden. Room changes require warden approval.</span>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        Floor
-                      </label>
-                      <select
-                        disabled={isHostelVerified}
-                        ref={(e) => {
-                          register("floor").ref(e);
-                          floorInputRef.current = e;
-                        }}
-                        {...register("floor")}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
-                      >
-                        {WORKFLOW_CONFIG.floors.map((fl) => (
-                          <option key={fl.id} value={fl.id}>
-                            {fl.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        Room Number
-                      </label>
-                      <input
-                        disabled={isHostelVerified}
-                        ref={(e) => {
-                          register("roomNumber").ref(e);
-                          roomInputRef.current = e;
-                        }}
-                        type="text"
-                        placeholder={selectedFloor === "GF" ? "e.g. G04" : "e.g. 304"}
-                        {...register("roomNumber")}
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
-                      />
-                      {errors.roomNumber && (
-                        <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.roomNumber.message}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-
-            {/* GUARDIAN CONTACTS */}
-            <Card className="p-4 space-y-3.5">
-              <div className="flex items-center gap-2">
-                <Heart className="w-4 h-4 text-primary" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Guardian Details
-                </h3>
-              </div>
-
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                  {/* Row 2: Mobile No. | U.ID */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Guardian Name
-                    </label>
-                    <input
-                      ref={(e) => {
-                        register("guardianName").ref(e);
-                        guardianNameRef.current = e;
-                      }}
-                      type="text"
-                      {...register("guardianName")}
-                      placeholder="Parent / Guardian Name"
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                    {errors.guardianName && (
-                      <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.guardianName.message}</p>
-                    )}
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Mobile No.
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                      {watchedValues.phone || profile?.phone || "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      U.ID
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold font-mono text-slate-800">
+                      {studentUid}
+                    </span>
                   </div>
 
+                  {/* Row 3: Room No. | B. Group */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Relationship
-                    </label>
-                    <select
-                      {...register("guardianRelation")}
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="Father">Father</option>
-                      <option value="Mother">Mother</option>
-                      <option value="Guardian">Legal Guardian</option>
-                    </select>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Room No.
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                      {roomNo}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      B. Group
+                    </span>
+                    <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                      {watchedValues.bloodGroup || profile?.bloodGroup || "—"}
+                    </span>
+                  </div>
+
+                  {/* Row 4: Register No. | D.O.B. */}
+                  <div>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      Register No.
+                    </span>
+                    <span className="text-[11px] sm:text-xs md:text-sm font-semibold font-mono text-slate-800 tracking-tight whitespace-nowrap block">
+                      {regNo}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                      D.O.B.
+                    </span>
+                    <span className="text-[11px] sm:text-xs md:text-sm font-semibold text-slate-800 whitespace-nowrap block">
+                      {watchedValues.dob || profile?.dob || "—"}
+                    </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Guardian Phone
-                    </label>
-                    <input
-                      ref={(e) => {
-                        register("guardianPhone").ref(e);
-                        guardianPhoneRef.current = e;
-                      }}
-                      type="tel"
-                      {...register("guardianPhone")}
-                      placeholder="Primary phone"
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                    {errors.guardianPhone && (
-                      <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.guardianPhone.message}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Alt Phone (Optional)
-                    </label>
-                    <input
-                      type="tel"
-                      {...register("guardianAltPhone")}
-                      placeholder="Alternate phone"
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            {/* SECURITY & PASSWORD */}
-            <Card className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-                    Account Security
+                {/* 3. Address - BOTTOM */}
+                <div className="pt-2.5 sm:pt-3 border-t border-slate-200/80">
+                  <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-0.5">
+                    Address
                   </span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                    Last updated: {lastPwdChange}
-                  </span>
+                  <p className="text-[11px] sm:text-xs text-slate-700 leading-relaxed whitespace-pre-line break-words">
+                    {watchedValues.address || profile?.address || "No address provided"}
+                  </p>
                 </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowPwdModal(true)}
-                  className="text-xs font-semibold"
-                >
-                  Change Password
-                </Button>
               </div>
-            </Card>
+            )}
+          </div>
+        </div>
+      </div>
 
-            {/* PWA INSTALL & NOTIFICATIONS */}
-            <PwaInstallPrompt variant="card" />
-            <PushNotificationCard />
+      {/* ========================================================= */}
+      {/* 2. PARENT DETAILS CARD (COMPLETELY SEPARATE CARD)        */}
+      {/* ========================================================= */}
+      <div className="relative bg-white border border-slate-200/80 rounded-2xl sm:rounded-3xl shadow-sm overflow-hidden p-4 sm:p-6 md:p-8 space-y-3.5">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-1 border-b border-slate-100/80">
+          <div className="flex items-center gap-1.5">
+            <User className="w-4 h-4 text-primary shrink-0" />
+            <h3 className="text-xs sm:text-sm font-bold text-slate-800">
+              Parent Details
+            </h3>
+          </div>
+          {!isEditingParent && (
+            <button
+              type="button"
+              onClick={() => setIsEditingParent(true)}
+              aria-label="Edit Parent Details"
+              title="Edit Parent Details"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200/80 shadow-xs flex items-center justify-center text-slate-600 hover:text-primary transition-all duration-150 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer shrink-0"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
-            {/* LOGOUT BUTTON */}
-            <div className="pt-1">
+        {isEditingParent ? (
+          /* Editable Form Controls for Parents */
+          <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
+              <div>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                  Father Name
+                </label>
+                <input
+                  type="text"
+                  ref={fatherNameRef}
+                  {...register("fatherName")}
+                  className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs sm:text-sm font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder="Father's full name"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                  Father Mobile No.
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  ref={fatherPhoneRef}
+                  {...register("fatherPhone")}
+                  className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs sm:text-sm font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder="10-digit mobile number"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
+              <div>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                  Mother Name
+                </label>
+                <input
+                  type="text"
+                  ref={motherNameRef}
+                  {...register("motherName")}
+                  className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs sm:text-sm font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder="Mother's full name"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                  Mother Mobile No.
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  ref={motherPhoneRef}
+                  {...register("motherPhone")}
+                  className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs sm:text-sm font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder="10-digit mobile number"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-2 border-t border-slate-100 flex flex-row items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={handleCancelParentSection}
+                disabled={isSavingSection === "parent"}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 transition active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
               <Button
                 type="button"
-                variant="outline"
-                size="md"
-                onClick={() => setShowLogoutDialog(true)}
-                leftIcon={LogOut}
-                className="w-full text-xs font-bold text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/40"
+                onClick={handleSaveParentSection}
+                disabled={isSavingSection === "parent"}
+                loading={isSavingSection === "parent"}
+                leftIcon={isSavingSection === "parent" ? undefined : Save}
+                size="sm"
+                className="min-w-[90px] bg-primary hover:bg-primary-hover text-white font-bold"
               >
-                Log Out of Student Account
+                Save
               </Button>
             </div>
           </div>
-        </div>
-
-        {/* STICKY SAVE BAR */}
-        {isDirty && (
-          <div className="sticky bottom-[var(--tabbar-h)] md:bottom-4 z-20 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 shadow-xl animate-in slide-in-from-bottom-2 duration-200">
-            <div className="text-xs">
-              <span className="font-bold text-amber-600 dark:text-amber-400 block">
-                Unsaved Changes
+        ) : (
+          /* Static Plain Text Display */
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 pt-1">
+            <div>
+              <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                Father Name
               </span>
-              <span className="text-[10px] text-slate-500">
-                Remember to save your updated records.
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                {watchedValues.fatherName || profile?.fatherName || "—"}
               </span>
             </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => reset()}
-                leftIcon={RotateCcw}
-                className="text-xs font-semibold"
-              >
-                Reset
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                disabled={isSubmitting}
-                leftIcon={Save}
-                className="text-xs font-bold shadow-md"
-              >
-                {isSubmitting ? "Saving..." : "Save Profile"}
-              </Button>
+            <div>
+              <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                Father Mobile No.
+              </span>
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                {watchedValues.fatherPhone || profile?.fatherPhone || "—"}
+              </span>
+            </div>
+            <div>
+              <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                Mother Name
+              </span>
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                {watchedValues.motherName || profile?.motherName || "—"}
+              </span>
+            </div>
+            <div>
+              <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                Mother Mobile No.
+              </span>
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                {watchedValues.motherPhone || profile?.motherPhone || "—"}
+              </span>
             </div>
           </div>
         )}
-      </form>
+      </div>
 
-      {/* Photo Upload Modal (Supports camera, crop, and ≤1MB policy) */}
-      <Modal
-        isOpen={showPhotoModal}
-        onClose={() => setShowPhotoModal(false)}
-        title="Update Profile Photo"
-      >
-        <div className="py-2 space-y-4">
-          <PhotoPicker
-            value={tempPhotoDataUrl || profile?.photo || profile?.photoDataUrl || null}
-            onChange={(dataUrl) => setTempPhotoDataUrl(dataUrl)}
-            required
-          />
-
-          <div className="flex items-center gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowPhotoModal(false)}
-              className="flex-1 text-xs"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              disabled={!tempPhotoDataUrl}
-              onClick={handleSavePhoto}
-              className="flex-1 text-xs font-bold"
-            >
-              Save Photo
-            </Button>
+      {/* ========================================================= */}
+      {/* 3. GUARDIAN DETAILS CARD (SEPARATE CARD & OPTIONAL)      */}
+      {/* ========================================================= */}
+      <div className="relative bg-white border border-slate-200/80 rounded-2xl sm:rounded-3xl shadow-sm overflow-hidden p-4 sm:p-6 md:p-8 space-y-3.5">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-1 border-b border-slate-100/80">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Shield className="w-4 h-4 text-slate-400 shrink-0" />
+              <h3 className="text-xs sm:text-sm font-bold text-slate-800">
+                Guardian Details (Optional)
+              </h3>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 shrink-0">
+              Optional
+            </span>
           </div>
+          {!isEditingGuardian && (
+            <button
+              type="button"
+              onClick={() => setIsEditingGuardian(true)}
+              aria-label="Edit Guardian Details"
+              title="Edit Guardian Details"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-200/80 shadow-xs flex items-center justify-center text-slate-600 hover:text-primary transition-all duration-150 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer shrink-0"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
-      </Modal>
 
-      {/* Change Password Modal */}
-      <Modal
-        isOpen={showPwdModal}
-        onClose={() => setShowPwdModal(false)}
-        title="Change Account Password"
-      >
-        <ChangePasswordForm
-          onSuccess={() => setShowPwdModal(false)}
-          onCancel={() => setShowPwdModal(false)}
+        {isEditingGuardian ? (
+          /* Editable Form Controls for Guardian */
+          <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
+              <div>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                  Guardian Name
+                </label>
+                <input
+                  type="text"
+                  {...register("guardianName")}
+                  className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs sm:text-sm font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder="Guardian name (optional)"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                  Guardian Mobile Number
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  {...register("guardianPhone")}
+                  className="w-full px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs sm:text-sm font-medium focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  placeholder="10-digit mobile number"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-2 border-t border-slate-100 flex flex-row items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={handleCancelGuardianSection}
+                disabled={isSavingSection === "guardian"}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 transition active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <Button
+                type="button"
+                onClick={handleSaveGuardianSection}
+                disabled={isSavingSection === "guardian"}
+                loading={isSavingSection === "guardian"}
+                leftIcon={isSavingSection === "guardian" ? undefined : Save}
+                size="sm"
+                className="min-w-[90px] bg-primary hover:bg-primary-hover text-white font-bold"
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Static Plain Text Display */
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 pt-1">
+            <div>
+              <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                Guardian Name
+              </span>
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                {watchedValues.guardianName || profile?.guardianName || "— (Optional)"}
+              </span>
+            </div>
+            <div>
+              <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                Guardian Mobile No.
+              </span>
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                {watchedValues.guardianPhone || profile?.guardianPhone || "— (Optional)"}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================= */}
+      {/* COMPLETION BREAKDOWN MODAL                                */}
+      {/* ========================================================= */}
+      {showCompletionModal && (
+        <Modal
+          isOpen={showCompletionModal}
+          onClose={() => setShowCompletionModal(false)}
+          title="Profile Completion Status"
+          className="max-w-md w-full"
+        >
+          <div className="space-y-4 pt-1 select-none">
+            {/* Header progress recap */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-slate-700 flex items-center gap-1.5">
+                  <CheckCircle2
+                    className={`w-4 h-4 ${
+                      completionStats.is100Percent ? "text-emerald-500" : "text-primary"
+                    }`}
+                  />
+                  Overall Completion
+                </span>
+                <span className="font-mono text-sm text-primary">
+                  {completionStats.percentage}% ({completionStats.filledCount} / {completionStats.totalRequired})
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 ${
+                    completionStats.is100Percent ? "bg-emerald-500" : "bg-primary"
+                  }`}
+                  style={{ width: `${completionStats.percentage}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {completionStats.is100Percent
+                  ? "Your profile is 100% complete! All essential hostel resident fields are in place."
+                  : "Complete all 14 required fields below to reach 100% profile status. Guardian details are optional."}
+              </p>
+            </div>
+
+            {/* Checklist of all 14 fields */}
+            <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+              {completionStats.fields.map((field) => (
+                <div
+                  key={field.key}
+                  className="flex items-center justify-between p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition text-xs"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {field.complete ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className={`font-semibold truncate ${field.complete ? "text-slate-800" : "text-amber-800"}`}>
+                        {field.label}
+                      </p>
+                      <span className="text-[10px] text-slate-400 block">{field.group}</span>
+                    </div>
+                  </div>
+
+                  {!field.complete && field.ref && (
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToField(field.ref)}
+                      className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20 hover:bg-amber-500/20 transition cursor-pointer shrink-0"
+                    >
+                      Fill In &rarr;
+                    </button>
+                  )}
+                  {field.complete && (
+                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                      Done
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCompletionModal(false)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ========================================================= */}
+      {/* PHOTO CROP MODAL                                          */}
+      {/* ========================================================= */}
+      {showCropModal && selectedCropFile && (
+        <ProfilePhotoCropModal
+          isOpen={showCropModal}
+          onClose={() => setShowCropModal(false)}
+          file={selectedCropFile}
+          onConfirm={handleConfirmCrop}
         />
-      </Modal>
-
-      {/* Logout Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={showLogoutDialog}
-        onClose={() => setShowLogoutDialog(false)}
-        onConfirm={handleLogout}
-        title="Confirm Logout?"
-        description="Are you sure you want to sign out from the DMI College Hostel Management PWA?"
-        confirmText="Yes, Log Out"
-        cancelText="Stay Logged In"
-        variant="danger"
-      />
+      )}
     </div>
   );
 }

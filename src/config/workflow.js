@@ -99,14 +99,10 @@ export const WORKFLOW_CONFIG = {
   // Operation 1: Switchable Room Allocation Mode ('student_enters' | 'warden_allocates')
   roomAllocationMode: "student_enters",
 
-  // Operation 2: Switchable Photo Upload Policy ('auto_compress' | 'reject')
-  photoPolicy: "auto_compress",
-
-  // Photo size limits (in bytes)
-  maxPhotoBytes: 1048576, // 1 MB (1,048,576 bytes) final stored limit
-  maxPhotoInputBytes: 15728640, // 15 MB (15,728,640 bytes) max input for auto-compress
+  // Photo Upload Policy & Size limits
+  photoPolicy: "crop_confirm",
+  maxPhotoBytes: 5242880, // 5 MB (5,242,880 bytes)
   photoMinPx: 200,
-  photoOutputPx: 400,
   photoAccept: ["image/jpeg", "image/png", "image/webp"],
 
   // Department insights thresholds (percentage)

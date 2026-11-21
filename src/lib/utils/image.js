@@ -1,16 +1,13 @@
 /**
- * DMI College Hostel Management PWA - Photo Processing & Compression Engine
+ * DMI College Hostel Management PWA - Photo Processing & WhatsApp-Style Crop Utility
  *
- * Implements strict &le; 1 MB storage compliance across both operational policies:
- * - 'reject': Immediately rejects files > 1 MB.
- * - 'auto_compress': Accepts originals up to 15 MB, downsizes, steps quality (0.85 -> 0.50)
- *   and dimensions (400 -> 320 -> 256) to ensure final stored JPEG is <= 1 MB.
- *
- * // TODO(BACKEND): Upload to Cloudinary via signed upload preset, enforce server-side
- * // validation on file size and MIME type, and store only the secure URL in the database.
+ * Enforces strict <= 5 MB size limit without automatic compression or downscaling.
+ * Supports JPG, JPEG, PNG, and WebP formats.
  */
 
-import { WORKFLOW_CONFIG } from "@/config/workflow.js";
+export const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB = 5,242,880 bytes
+export const ALLOWED_IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp"];
+export const ALLOWED_IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp"];
 
 /**
  * Formats byte values into human-readable strings (e.g. 640 KB, 1.8 MB)
@@ -25,7 +22,7 @@ export function formatBytes(bytes) {
     return `${kb >= 100 ? Math.round(kb) : kb.toFixed(1)} KB`;
   }
   const mb = bytes / 1048576;
-  return `${mb.toFixed(1)} MB`;
+  return `${mb.toFixed(2)} MB`;
 }
 
 /**
@@ -65,24 +62,13 @@ export function loadImage(fileOrSrc) {
 }
 
 /**
- * Validates photo file against operational policy, MIME types, extensions,
- * size boundaries, and minimum dimensions.
+ * Validates a photo file against the strict 5 MB limit and permitted formats.
+ * Does NOT perform any automatic compression or resizing.
  *
  * @param {File} file
- * @param {object|string} [policyOrMode]
- * @returns {Promise<{ valid: boolean, error?: string, width?: number, height?: number, size?: number, requiresCompression?: boolean, helperNotice?: string }>}
+ * @returns {Promise<{ valid: boolean, error?: string, width?: number, height?: number, size?: number }>}
  */
-export async function validatePhotoFile(file, policyOrMode = "auto_compress") {
-  const policyMode =
-    typeof policyOrMode === "string"
-      ? policyOrMode
-      : policyOrMode?.photoPolicy || WORKFLOW_CONFIG.photoPolicy || "auto_compress";
-
-  const maxBytes = WORKFLOW_CONFIG.maxPhotoBytes || 1048576; // 1 MB
-  const maxInputBytes = WORKFLOW_CONFIG.maxPhotoInputBytes || 15728640; // 15 MB
-  const minPx = WORKFLOW_CONFIG.photoMinPx || 200;
-  const allowedMimes = WORKFLOW_CONFIG.photoAccept || ["image/jpeg", "image/png", "image/webp"];
-
+export async function validatePhotoFile(file) {
   // 1. Required check
   if (!file) {
     return { valid: false, error: "Photo is required" };
@@ -90,9 +76,8 @@ export async function validatePhotoFile(file, policyOrMode = "auto_compress") {
 
   // 2. Extension & MIME check
   const fileName = (file.name || "").toLowerCase();
-  const validExts = [".jpg", ".jpeg", ".png", ".webp"];
-  const hasValidExt = validExts.some((ext) => fileName.endsWith(ext));
-  const hasValidMime = allowedMimes.includes(file.type);
+  const hasValidExt = ALLOWED_IMAGE_EXTS.some((ext) => fileName.endsWith(ext));
+  const hasValidMime = ALLOWED_IMAGE_MIMES.includes(file.type);
 
   if (!hasValidExt || !hasValidMime) {
     return {
@@ -101,50 +86,23 @@ export async function validatePhotoFile(file, policyOrMode = "auto_compress") {
     };
   }
 
-  // 3. File Size Validation per Policy Mode
-  if (policyMode === "reject") {
-    if (file.size > maxBytes) {
-      return {
-        valid: false,
-        error: `File is too large (${formatBytes(file.size)}). Maximum is 1 MB.`,
-      };
-    }
-  } else {
-    // Mode: auto_compress
-    if (file.size > maxInputBytes) {
-      return {
-        valid: false,
-        error: `File is too large (${formatBytes(file.size)}). Maximum is 15 MB.`,
-      };
-    }
+  // 3. Strict 5 MB size validation (reject larger than 5 MB immediately)
+  if (file.size > MAX_PROFILE_PHOTO_BYTES) {
+    return {
+      valid: false,
+      error: "Image size must be 5 MB or less. Please select another image.",
+      size: file.size,
+    };
   }
 
-  // 4. Image Readability & Minimum Dimension Validation
+  // 4. Image readability
   try {
     const img = await loadImage(file);
-
-    if (img.naturalWidth < minPx || img.naturalHeight < minPx) {
-      return {
-        valid: false,
-        error: `Image must be at least ${minPx}x${minPx} pixels`,
-        width: img.naturalWidth,
-        height: img.naturalHeight,
-      };
-    }
-
-    const requiresCompression = file.size > maxBytes;
-    const helperNotice =
-      requiresCompression && policyMode === "auto_compress"
-        ? "Large photo detected, it will be compressed to under 1 MB"
-        : null;
-
     return {
       valid: true,
       width: img.naturalWidth,
       height: img.naturalHeight,
       size: file.size,
-      requiresCompression,
-      helperNotice,
     };
   } catch (err) {
     return {
@@ -166,122 +124,82 @@ export function getDataUrlSizeBytes(dataUrl) {
 }
 
 /**
- * Compresses canvas to a JPEG data URL that strictly fits within maxBytes (1 MB)
- * Steps quality down (0.85 -> 0.50 in 0.05 steps) and canvas dimensions if necessary.
- *
- * @param {HTMLCanvasElement} canvas
- * @param {number} [maxBytes=1048576]
- * @returns {{ dataUrl: string, sizeBytes: number, quality: number, width: number, height: number }}
- */
-export function compressToLimit(canvas, maxBytes = 1048576) {
-  if (typeof window === "undefined" || !canvas) {
-    throw new Error("Canvas compression requires client environment");
-  }
-
-  let quality = 0.85;
-  let dataUrl = canvas.toDataURL("image/jpeg", quality);
-  let sizeBytes = getDataUrlSizeBytes(dataUrl);
-
-  // 1. Step down quality in increments of 0.05 to floor of 0.50
-  while (sizeBytes > maxBytes && quality > 0.50) {
-    quality -= 0.05;
-    dataUrl = canvas.toDataURL("image/jpeg", quality);
-    sizeBytes = getDataUrlSizeBytes(dataUrl);
-  }
-
-  // 2. If still exceeding 1 MB, step down dimensions: 400 -> 320 -> 256
-  const dimensionSteps = [320, 256];
-  let currentWidth = canvas.width;
-  let currentHeight = canvas.height;
-
-  for (const targetDim of dimensionSteps) {
-    if (sizeBytes <= maxBytes) break;
-
-    const scaledCanvas = document.createElement("canvas");
-    scaledCanvas.width = targetDim;
-    scaledCanvas.height = targetDim;
-    const ctx = scaledCanvas.getContext("2d");
-    ctx.drawImage(canvas, 0, 0, targetDim, targetDim);
-
-    currentWidth = targetDim;
-    currentHeight = targetDim;
-
-    // Retest from quality 0.85 down to 0.50 on scaled canvas
-    quality = 0.85;
-    dataUrl = scaledCanvas.toDataURL("image/jpeg", quality);
-    sizeBytes = getDataUrlSizeBytes(dataUrl);
-
-    while (sizeBytes > maxBytes && quality > 0.50) {
-      quality -= 0.05;
-      dataUrl = scaledCanvas.toDataURL("image/jpeg", quality);
-      sizeBytes = getDataUrlSizeBytes(dataUrl);
-    }
-  }
-
-  if (sizeBytes > maxBytes) {
-    throw new Error("We couldn't compress this photo. Try a different one.");
-  }
-
-  return {
-    dataUrl,
-    sizeBytes,
-    quality: Math.round(quality * 100) / 100,
-    width: currentWidth,
-    height: currentHeight,
-  };
-}
-
-/**
- * Crops and resizes an image to a square 400x400 JPEG data URL strictly <= 1 MB
+ * Renders the adjusted crop area to an HTML5 Canvas and exports a high-quality Blob.
+ * Strict preservation of quality without automatic compression.
+ * Rejects if the final cropped blob exceeds 5 MB.
  *
  * @param {HTMLImageElement} image
- * @param {{ x: number, y: number, width: number, height: number }} [crop]
- * @param {number} [targetPx=400]
- * @param {number} [maxBytes=1048576]
- * @returns {{ dataUrl: string, sizeBytes: number, quality: number, width: number, height: number }}
+ * @param {{ sx: number, sy: number, sWidth: number, sHeight: number, outputSize?: number }} crop
+ * @param {string} [mimeType="image/jpeg"]
+ * @returns {Promise<{ blob: Blob, dataUrl: string, sizeBytes: number, width: number, height: number }>}
  */
-export function cropAndResize(image, crop, targetPx = 400, maxBytes = 1048576) {
+export async function renderCroppedPhoto(image, crop, mimeType = "image/jpeg") {
   if (typeof window === "undefined") {
-    throw new Error("cropAndResize requires client environment");
+    throw new Error("renderCroppedPhoto requires client environment");
   }
 
+  const outputSize = crop.outputSize || Math.min(800, Math.max(crop.sWidth, crop.sHeight));
   const canvas = document.createElement("canvas");
-  canvas.width = targetPx;
-  canvas.height = targetPx;
+  canvas.width = outputSize;
+  canvas.height = outputSize;
   const ctx = canvas.getContext("2d");
 
-  // Default to centered square crop if crop parameters omitted
-  let sx = 0;
-  let sy = 0;
-  let sWidth = image.naturalWidth || image.width;
-  let sHeight = image.naturalHeight || image.height;
-
-  if (crop && crop.width && crop.height) {
-    sx = crop.x;
-    sy = crop.y;
-    sWidth = crop.width;
-    sHeight = crop.height;
-  } else {
-    const minDim = Math.min(sWidth, sHeight);
-    sx = (sWidth - minDim) / 2;
-    sy = (sHeight - minDim) / 2;
-    sWidth = minDim;
-    sHeight = minDim;
-  }
-
-  // Smooth scaling
+  // High quality rendering
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, sx, sy, sWidth, sHeight, 0, 0, targetPx, targetPx);
 
-  return compressToLimit(canvas, maxBytes);
+  // Draw the exact source crop into square output
+  ctx.drawImage(
+    image,
+    crop.sx,
+    crop.sy,
+    crop.sWidth,
+    crop.sHeight,
+    0,
+    0,
+    outputSize,
+    outputSize
+  );
+
+  const outMime = ALLOWED_IMAGE_MIMES.includes(mimeType) ? mimeType : "image/jpeg";
+  const quality = outMime === "image/png" ? undefined : 0.95;
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          return reject(new Error("Failed to process cropped photo"));
+        }
+
+        // Validate final cropped file size
+        if (blob.size > MAX_PROFILE_PHOTO_BYTES) {
+          return reject(
+            new Error("Image size must be 5 MB or less. Please select another image.")
+          );
+        }
+
+        const dataUrl = canvas.toDataURL(outMime, quality);
+        resolve({
+          blob,
+          dataUrl,
+          sizeBytes: blob.size,
+          width: outputSize,
+          height: outputSize,
+        });
+      },
+      outMime,
+      quality
+    );
+  });
 }
 
 export default {
+  MAX_PROFILE_PHOTO_BYTES,
+  ALLOWED_IMAGE_MIMES,
+  ALLOWED_IMAGE_EXTS,
   formatBytes,
   loadImage,
   validatePhotoFile,
   getDataUrlSizeBytes,
-  compressToLimit,
-  cropAndResize,
+  renderCroppedPhoto,
 };

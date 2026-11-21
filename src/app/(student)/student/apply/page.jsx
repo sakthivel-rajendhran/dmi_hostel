@@ -39,26 +39,17 @@ import { Textarea } from "@/components/ui/Textarea.jsx";
 import { Checkbox } from "@/components/ui/Checkbox.jsx";
 import { Switch } from "@/components/ui/Switch.jsx";
 import { SegmentedControl } from "@/components/ui/SegmentedControl.jsx";
-import { FileDropzone } from "@/components/ui/FileDropzone.jsx";
 import { Modal } from "@/components/ui/Modal.jsx";
 import { usePolicy } from "@/hooks/usePolicy.js";
+import { cn } from "@/lib/utils";
 
-const DESTINATION_SUGGESTIONS = [
-  "Town Market",
-  "General Hospital",
-  "Railway Station",
-  "Central Bookstore",
-  "Family Hometown",
-];
-
-const REASON_SUGGESTIONS = [
-  "Medical appointment",
-  "Academic book purchase",
-  "Family function / wedding",
-  "Bank work & document verification",
-  "Competitive examination",
-  "Weekend visit to native place",
-];
+function extractTenDigitPhone(phoneStr) {
+  if (!phoneStr) return "";
+  const digits = String(phoneStr).replace(/\D/g, "");
+  if (digits.length === 10) return digits;
+  if (digits.length > 10) return digits.slice(-10);
+  return digits;
+}
 
 const DRAFT_STORAGE_KEY = "dmi_student_apply_draft_v2";
 
@@ -80,7 +71,6 @@ export default function StudentApplyPage() {
   const [passType, setPassType] = useState("Local Pass"); // "Local Pass" | "Home Pass"
   const [selectedLetterId, setSelectedLetterId] = useState(urlLetterId);
   const [isEmergency, setIsEmergency] = useState(false);
-  const [attachedFile, setAttachedFile] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [createdPass, setCreatedPass] = useState(null);
   const [eligibilityWarning, setEligibilityWarning] = useState("");
@@ -95,6 +85,8 @@ export default function StudentApplyPage() {
   const isLocal = passType === "Local Pass";
   const activeSchema = isLocal ? localPassSchema : homePassSchema;
 
+  const defaultStudentPhone = extractTenDigitPhone(profile?.phone || user?.phone);
+
   const defaultValues = {
     date: todayStr,
     fromDate: todayStr,
@@ -103,7 +95,8 @@ export default function StudentApplyPage() {
     returnTime: "20:00",
     destination: "",
     reason: "",
-    guardianPhone: profile?.guardianPhone || user?.guardianPhone || "9876543210",
+    studentPhone: defaultStudentPhone,
+    guardianPhone: defaultStudentPhone || extractTenDigitPhone(profile?.guardianPhone || user?.guardianPhone) || "9876543210",
     guardianConsent: false,
     isEmergency: false,
   };
@@ -139,14 +132,21 @@ export default function StudentApplyPage() {
           const parsed = JSON.parse(savedDraft);
           if (parsed.passType) setPassType(parsed.passType);
           if (parsed.isEmergency !== undefined) setIsEmergency(parsed.isEmergency);
-          reset(parsed.formValues);
-          toast.info("Draft restored from previous session.");
+          if (parsed.formValues && typeof parsed.formValues === "object") {
+            reset({
+              ...defaultValues,
+              ...parsed.formValues,
+              studentPhone: parsed.formValues.studentPhone || defaultStudentPhone,
+              guardianPhone: parsed.formValues.guardianPhone || defaultStudentPhone || "9876543210",
+            });
+            toast.info("Draft restored from previous session.");
+          }
         }
       } catch (e) {
         console.warn("Could not load draft:", e);
       }
     }
-  }, [reset]);
+  }, [reset, defaultStudentPhone]);
 
   // Sync draft to sessionStorage on form changes
   useEffect(() => {
@@ -167,12 +167,14 @@ export default function StudentApplyPage() {
     }
   }, [watch, passType, isEmergency, createdPass]);
 
-  // Set guardian phone from profile when loaded
+  // Set student phone from authenticated profile when loaded
   useEffect(() => {
-    if (profile?.guardianPhone) {
-      setValue("guardianPhone", profile.guardianPhone);
+    const studentNum = extractTenDigitPhone(profile?.phone || user?.phone);
+    if (studentNum) {
+      setValue("studentPhone", studentNum, { shouldValidate: true });
+      setValue("guardianPhone", studentNum, { shouldValidate: true });
     }
-  }, [profile, setValue]);
+  }, [profile, user, setValue]);
 
   // Check Overdue status
   const hasOverduePass = existingPasses.some((p) => p.status === PASS_STATUSES.OVERDUE);
@@ -258,10 +260,12 @@ export default function StudentApplyPage() {
         toTime: toIso,
         departureTime: fromIso,
         expectedReturnTime: toIso,
-        guardianPhone: data.guardianPhone,
+        studentPhone: data.studentPhone || data.guardianPhone || extractTenDigitPhone(profile?.phone || user?.phone),
+        guardianPhone: data.studentPhone || data.guardianPhone || extractTenDigitPhone(profile?.phone || user?.phone),
+        phone: data.studentPhone || data.guardianPhone || extractTenDigitPhone(profile?.phone || user?.phone),
         guardianConsent: isLocal ? true : data.guardianConsent,
         emergency: isEmergency,
-        attachmentName: attachedFile ? attachedFile.name : null,
+        attachmentName: null,
         letterId: selectedLetterId || null,
       });
 
@@ -762,20 +766,6 @@ export default function StudentApplyPage() {
                     {errors.destination.message}
                   </p>
                 )}
-
-                {/* Destination quick chips */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {DESTINATION_SUGGESTIONS.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setValue("destination", d, { shouldValidate: true })}
-                      className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-primary/10 hover:text-primary text-[11px] font-semibold text-slate-600 dark:text-slate-300 transition"
-                    >
-                      + {d}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Reason */}
@@ -806,25 +796,63 @@ export default function StudentApplyPage() {
                   <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.reason.message}</p>
                 )}
 
-                {/* Reason quick chips */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {REASON_SUGGESTIONS.map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setValue("reason", r, { shouldValidate: true })}
-                      className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-primary/10 hover:text-primary text-[11px] font-semibold text-slate-600 dark:text-slate-300 transition"
-                    >
-                      + {r}
-                    </button>
-                  ))}
+                {/* Emergency Medical / Hospital Shortcut */}
+                <div className="mt-3 p-3.5 rounded-xl border border-red-200 bg-red-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="text-xs font-bold text-red-700 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>In case of Emergency click this &gt;</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEmergency(true);
+                      setValue("isEmergency", true, { shouldValidate: true, shouldDirty: true });
+                      setValue("reason", "Medical Appointment / Hospital", { shouldValidate: true, shouldDirty: true });
+                      toast.success("Emergency Medical / Urgent Pass enabled!");
+                    }}
+                    className={cn(
+                      "inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 shadow-sm active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 cursor-pointer",
+                      isEmergency
+                        ? "bg-red-600 text-white ring-2 ring-red-600 shadow-md"
+                        : "bg-red-600 hover:bg-red-700 text-white"
+                    )}
+                    aria-label="Select Emergency Medical Appointment / Hospital Pass"
+                  >
+                    <span>MEDICAL APPOINTMENT / HOSPITAL</span>
+                    {isEmergency && (
+                      <span className="w-2 h-2 rounded-full bg-white animate-pulse ml-0.5" />
+                    )}
+                  </button>
                 </div>
+
+                {/* Indication of Emergency Selection */}
+                {isEmergency && (
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 font-semibold min-w-0">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="truncate">Emergency Medical / Urgent Pass is selected</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEmergency(false);
+                        setValue("isEmergency", false, { shouldValidate: true, shouldDirty: true });
+                        if (watchReason === "Medical Appointment / Hospital") {
+                          setValue("reason", "", { shouldValidate: true, shouldDirty: true });
+                        }
+                      }}
+                      className="text-[11px] underline font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white shrink-0 cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Guardian Contact */}
+              {/* Student Number */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Guardian Contact Number
+                  Student Number
                 </label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-2.5 text-xs font-semibold text-slate-400">
@@ -833,32 +861,30 @@ export default function StudentApplyPage() {
                   <input
                     type="tel"
                     placeholder="9876543210"
-                    {...register("guardianPhone")}
+                    {...register("studentPhone")}
+                    onChange={(e) => {
+                      register("studentPhone").onChange(e);
+                      setValue("guardianPhone", e.target.value, { shouldValidate: true });
+                    }}
                     className="w-full pl-12 pr-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-mono font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
-                {errors.guardianPhone && (
+                {errors.studentPhone && (
                   <p className="text-[11px] text-red-500 mt-1 font-semibold">
-                    {errors.guardianPhone.message}
+                    {errors.studentPhone.message}
                   </p>
                 )}
               </div>
             </Card>
 
-            {/* Optional Attachments & Emergency Card */}
-            <Card className="p-4 space-y-3.5">
+            {/* Additional Information Card */}
+            <Card className="p-4 space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Additional Information
               </h3>
 
-              {/* Optional Attachment */}
-              <FileDropzone
-                label="Optional Supporting Document (Medical / Invitation Letter)"
-                onFileSelect={(file) => setAttachedFile(file)}
-              />
-
               {/* Emergency Switch */}
-              <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
@@ -876,7 +902,10 @@ export default function StudentApplyPage() {
                 </div>
                 <Switch
                   checked={isEmergency}
-                  onChange={(checked) => setIsEmergency(checked)}
+                  onChange={(checked) => {
+                    setIsEmergency(checked);
+                    setValue("isEmergency", checked, { shouldValidate: true, shouldDirty: true });
+                  }}
                   aria-label="Toggle emergency status"
                 />
               </div>
@@ -921,9 +950,9 @@ export default function StudentApplyPage() {
                     </span>
                   </div>
                   <div className="flex justify-between items-start gap-2">
-                    <span className="text-slate-500 shrink-0">Guardian Contact:</span>
+                    <span className="text-slate-500 shrink-0">Student Number:</span>
                     <span className="font-mono text-slate-800 dark:text-slate-200 text-right">
-                      +91 {watch("guardianPhone") || "—"}
+                      +91 {watch("studentPhone") || watch("guardianPhone") || "—"}
                     </span>
                   </div>
                   {isEmergency && (
@@ -1028,9 +1057,9 @@ export default function StudentApplyPage() {
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-500">Guardian Contact:</span>
+              <span className="text-slate-500">Student Number:</span>
               <span className="font-mono text-slate-800 dark:text-slate-200">
-                +91 {watch("guardianPhone")}
+                +91 {watch("studentPhone") || watch("guardianPhone")}
               </span>
             </div>
             {isEmergency && (

@@ -204,20 +204,6 @@ export function StudentShell({ children }) {
           )}
         </div>
 
-        {/* Theme Toggle (non-collapsed) */}
-        {!isCollapsed && (
-          <button
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-          >
-            <div className="flex items-center gap-2.5">
-              {theme === "dark" ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-500" />}
-              <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
-            </div>
-            <span className="text-[10px] font-mono capitalize text-slate-400">{theme}</span>
-          </button>
-        )}
-
         {/* Collapse toggle (desktop only) */}
         <button
           onClick={toggleCollapsed}
@@ -264,41 +250,22 @@ export function StudentShell({ children }) {
       <div className="flex-1 flex flex-col min-w-0 w-full relative">
         {/* MOBILE APP BAR (<768px: sticky 56px app bar) */}
         <header className="md:hidden sticky top-0 z-30 h-14 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <button
-              onClick={() => setIsMobileOpen(true)}
-              aria-label="Open navigation menu"
-              className="p-1.5 -ml-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="relative w-7 h-7 rounded-full overflow-hidden border border-amber-400/60 shrink-0">
-                <Image
-                  src="/images/dmi-foundations-logo.png"
-                  alt="DMI Logo"
-                  fill
-                  className="object-cover"
-                />
-              </div>
-              <h1 className="text-sm font-bold leading-none truncate whitespace-nowrap" title="DMI Hostel">
-                DMI Hostel
-              </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="relative w-7 h-7 rounded-full overflow-hidden border border-amber-400/60 shrink-0">
+              <Image
+                src="/images/dmi-foundations-logo.png"
+                alt="DMI Logo"
+                fill
+                className="object-cover"
+              />
             </div>
+            <h1 className="text-sm font-bold leading-none truncate whitespace-nowrap" title="DMI Hostel">
+              DMI Hostel
+            </h1>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
             <PwaInstallPrompt variant="pill" />
-            <Link
-              href="/student/scan"
-              aria-label="Scan QR code"
-              className={cn(
-                "p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition",
-                pathname === "/student/scan" && "text-primary bg-primary/10"
-              )}
-            >
-              <QrCode className="w-4 h-4" />
-            </Link>
             <NotificationBell />
             <Link href="/student/profile" className="ml-1" aria-label="Student Profile">
               <Avatar
@@ -347,14 +314,6 @@ export function StudentShell({ children }) {
 
             <PwaInstallPrompt variant="pill" />
             <NotificationBell />
-
-            <button
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              aria-label="Toggle theme"
-            >
-              {theme === "dark" ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
-            </button>
 
             {/* User Dropdown */}
             <div className="relative">

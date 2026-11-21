@@ -30,7 +30,7 @@ export function Avatar({
       src.startsWith("blob:"));
 
   return (
-    <div className={cn("relative inline-flex flex-shrink-0 select-none", className)}>
+    <div className={cn("relative inline-flex flex-shrink-0 select-none rounded-full", className)}>
       <div
         className={cn(
           "rounded-full overflow-hidden flex items-center justify-center font-bold text-white shadow-sm border border-white/60 dark:border-white/10 bg-gradient-to-tr from-[#2438E8] to-[#6D28D9]",

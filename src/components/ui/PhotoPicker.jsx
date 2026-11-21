@@ -8,7 +8,7 @@ import { usePolicy } from "@/hooks/usePolicy.js";
 import {
   validatePhotoFile,
   loadImage,
-  cropAndResize,
+  renderCroppedPhoto,
   formatBytes,
   getDataUrlSizeBytes,
 } from "@/lib/utils/image.js";
@@ -93,16 +93,15 @@ export function PhotoPicker({
       const cropY = Math.max(0, (natH - cropSize) / 2);
 
       const targetPx = 400;
-      const maxBytes = 1048576; // 1 MB strictly
 
-      const processedDataUrl = await cropAndResize(
+      const result = await renderCroppedPhoto(
         croppingImage,
-        { x: cropX, y: cropY, width: cropSize, height: cropSize },
-        targetPx,
-        maxBytes
+        { sx: cropX, sy: cropY, sWidth: cropSize, sHeight: cropSize, outputSize: targetPx },
+        croppingFile?.type || "image/jpeg"
       );
 
-      const finalBytes = getDataUrlSizeBytes(processedDataUrl);
+      const processedDataUrl = result.dataUrl;
+      const finalBytes = result.sizeBytes;
       const originalBytes = croppingFile ? croppingFile.size : finalBytes;
 
       const meta = {

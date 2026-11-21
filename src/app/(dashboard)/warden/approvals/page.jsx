@@ -23,7 +23,18 @@ export default function WardenApprovalsPage() {
   const [filterType, setFilterType] = useState("all");
   const [previewLetter, setPreviewLetter] = useState(null);
 
-  const pending = passes.filter((p) => ["pending", "recommended"].includes(p.status));
+  const pending = passes.filter((p) => {
+    // Backend overallStatus check: only passes queued for Warden clearance
+    if (p.overallStatus) {
+      return p.overallStatus === "PENDING_WARDEN" || p.overallStatus === "STAFF_APPROVED";
+    }
+    // Home pass must be recommended by Staff before appearing in Warden queue
+    const isHome = (p.type || "").toLowerCase().includes("home") || p.workflowType === "HOME";
+    if (isHome && p.status === "pending" && !(p.recommendations && p.recommendations.length > 0)) {
+      return false;
+    }
+    return ["pending", "recommended"].includes(p.status);
+  });
   const filtered = pending.filter((p) => {
     const matchSearch =
       (p.studentName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||

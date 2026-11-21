@@ -73,14 +73,21 @@ export default function StudentPassDetailsPage() {
     );
   }
 
-  const isGateEligible = [
-    PASS_STATUSES.GATE_PASS_ISSUED,
-    PASS_STATUSES.OUT,
-    PASS_STATUSES.OVERDUE,
-  ].includes(pass.status);
+  const isGateEligible =
+    [
+      PASS_STATUSES.GATE_PASS_ISSUED,
+      PASS_STATUSES.APPROVED,
+      PASS_STATUSES.OUT,
+      PASS_STATUSES.OVERDUE,
+    ].includes(pass.status) ||
+    pass.overallStatus === "WARDEN_APPROVED" ||
+    pass.overallStatus === "GATE_PASS_ISSUED";
 
-  const isApprovedWaiting = pass.status === PASS_STATUSES.APPROVED;
-  const isRejected = pass.status === PASS_STATUSES.REJECTED;
+  const isApprovedWaiting = pass.status === PASS_STATUSES.APPROVED || pass.overallStatus === "WARDEN_APPROVED";
+  const isRejected =
+    pass.status === PASS_STATUSES.REJECTED ||
+    pass.overallStatus === "STAFF_REJECTED" ||
+    pass.overallStatus === "WARDEN_REJECTED";
   const canCancel = [PASS_STATUSES.PENDING, PASS_STATUSES.RECOMMENDED, PASS_STATUSES.APPLIED].includes(pass.status);
 
   // Share Pass Summary
@@ -182,10 +189,12 @@ export default function StudentPassDetailsPage() {
             <Card className="p-4 border-red-300 dark:border-red-900/60 bg-red-50/80 dark:bg-red-950/40 space-y-2">
               <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-bold text-xs">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>Outpass Rejected by Chief Warden</span>
+                <span>
+                  Outpass Rejected by {pass.overallStatus === "STAFF_REJECTED" ? "Staff / Class In-charge" : "Chief Warden"}
+                </span>
               </div>
               <p className="text-xs text-red-800 dark:text-red-200 pl-6 leading-relaxed">
-                {pass.wardenReason || pass.reason || "Disciplinary curfew restriction during examination schedule."}
+                {pass.wardenReason || pass.staffReason || pass.remarks || pass.reason || "Disciplinary curfew restriction during examination schedule."}
               </p>
               <div className="pt-2 pl-6">
                 <Button

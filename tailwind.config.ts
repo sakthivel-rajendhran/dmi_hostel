@@ -42,6 +42,7 @@ const config: Config = {
       fontFamily: {
         sans: ["'Plus Jakarta Sans'", "system-ui", "sans-serif"],
         caveat: ["'Caveat'", "cursive"],
+        playfair: ["'Playfair Display'", "Georgia", "serif"],
       },
     },
   },

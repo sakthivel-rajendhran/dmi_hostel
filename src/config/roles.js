@@ -50,8 +50,6 @@ export const ROLE_CONFIG = {
       { label: "Gate QR Posters", href: "/warden/gate-qr", icon: "QrCode", permission: PERMISSIONS.GATEQR_MANAGE },
       { label: "Gate Passes", href: "/warden/gate-passes", icon: "Ticket", permission: PERMISSIONS.PASS_ISSUE_GATE },
       { label: "Students", href: "/warden/students", icon: "Users", permission: PERMISSIONS.STUDENTS_VIEW_ALL },
-      { label: "Staff Accounts", href: "/warden/staff-accounts", icon: "UserCog", permission: PERMISSIONS.STAFF_MANAGE },
-      { label: "Rooms", href: "/warden/rooms", icon: "Bed", permission: PERMISSIONS.STUDENTS_MANAGE },
       { label: "Security Log", href: "/warden/security-log", icon: "ShieldAlert", permission: PERMISSIONS.SECURITY_LOG_VIEW },
       { label: "Announcements", href: "/warden/announcements", icon: "Megaphone", permission: PERMISSIONS.NOTIFICATIONS_SEND },
       { label: "Settings", href: "/warden/settings", icon: "Settings", permission: PERMISSIONS.STUDENTS_MANAGE },

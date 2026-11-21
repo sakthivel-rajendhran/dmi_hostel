@@ -34,6 +34,13 @@ export const phoneSchema = z
 
 export const indianPhoneSchema = phoneSchema;
 
+export const optionalIndianPhoneSchema = z
+  .string()
+  .trim()
+  .regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit Indian mobile number")
+  .or(z.literal(""))
+  .optional();
+
 // University Register / Roll Number Schema (6-15 uppercase alphanumeric chars)
 export const regNoSchema = z
   .string()
@@ -223,9 +230,20 @@ export const localPassSchema = z
       .trim()
       .min(10, "Please provide a reason of at least 10 characters")
       .max(300, "Reason cannot exceed 300 characters"),
-    guardianPhone: indianPhoneSchema,
+    studentPhone: optionalIndianPhoneSchema,
+    guardianPhone: optionalIndianPhoneSchema,
     isEmergency: z.boolean().default(false),
   })
+  .refine(
+    (data) => {
+      const p = data.studentPhone || data.guardianPhone;
+      return Boolean(p && /^[6-9]\d{9}$/.test(p));
+    },
+    {
+      message: "Valid 10-digit Indian mobile number is required",
+      path: ["studentPhone"],
+    }
+  )
   .refine(
     (data) => {
       if (!data.exitTime || !data.returnTime) return true;
@@ -264,12 +282,23 @@ export const homePassSchema = z
       .trim()
       .min(10, "Please provide a reason of at least 10 characters")
       .max(300, "Reason cannot exceed 300 characters"),
-    guardianPhone: indianPhoneSchema,
+    studentPhone: optionalIndianPhoneSchema,
+    guardianPhone: optionalIndianPhoneSchema,
     guardianConsent: z.boolean().refine((val) => val === true, {
       message: "Guardian confirmation is required for Home Pass",
     }),
     isEmergency: z.boolean().default(false),
   })
+  .refine(
+    (data) => {
+      const p = data.studentPhone || data.guardianPhone;
+      return Boolean(p && /^[6-9]\d{9}$/.test(p));
+    },
+    {
+      message: "Valid 10-digit Indian mobile number is required",
+      path: ["studentPhone"],
+    }
+  )
   .refine(
     (data) => {
       if (!data.fromDate || !data.toDate) return true;
@@ -294,18 +323,27 @@ export const homePassSchema = z
     }
   );
 
-// Student Profile Form Schema (Updated Floor & Room format)
+// Student Profile Form Schema (Updated for Unified Card, Additional Info & Optional Guardian)
 export const studentProfileSchema = z.object({
-  name: nameSchema,
+  name: z.string().trim().min(2, "Name must be at least 2 characters").optional(),
+  email: z.string().trim().email("Invalid email address").optional().or(z.literal("")),
+  collegeEmail: z.string().trim().email("Invalid email address").optional().or(z.literal("")),
   phone: indianPhoneSchema,
-  bloodGroup: z.string().min(1, "Select blood group"),
-  dob: z.string().optional(),
-  address: z.string().trim().min(5, "Home address must be at least 5 characters"),
-  floor: z.enum(["GF", "F2", "F3", "F4"]).optional().nullable(),
+  department: z.string().optional(),
+  year: z.any().optional(),
+  regNo: z.string().optional(),
   roomNumber: z.string().trim().optional().nullable(),
-  guardianName: nameSchema,
-  guardianRelation: z.string().min(1, "Guardian relation is required"),
-  guardianPhone: indianPhoneSchema,
+  bloodGroup: z.string().optional().or(z.literal("")),
+  dob: z.string().optional().or(z.literal("")),
+  address: z.string().optional().or(z.literal("")),
+  fatherName: z.string().trim().min(2, "Father name must be at least 2 characters").max(50, "Max 50 characters"),
+  fatherPhone: indianPhoneSchema,
+  motherName: z.string().trim().min(2, "Mother name must be at least 2 characters").max(50, "Max 50 characters"),
+  motherPhone: indianPhoneSchema,
+  guardianName: z.string().trim().max(50).optional().or(z.literal("")),
+  guardianPhone: optionalIndianPhoneSchema,
+  floor: z.string().optional().nullable(),
+  guardianRelation: z.string().optional(),
   guardianAltPhone: z.string().optional(),
 });
 

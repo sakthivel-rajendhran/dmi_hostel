@@ -151,7 +151,7 @@ export async function rotateGateQr(gateId = "MAIN") {
  * @param {'student_scan'|'manual'} [params.source='student_scan']
  */
 export async function processScan({ studentId, qrText, manualCode, location, source = "student_scan" }) {
-  await simulateLatency(350, 650);
+  await simulateLatency(250, 450);
 
   // Strict offline check: scans cannot be queued offline to prevent timestamp fraud
   if (typeof window !== "undefined" && !navigator.onLine) {
@@ -159,6 +159,25 @@ export async function processScan({ studentId, qrText, manualCode, location, sou
       "OFFLINE",
       "You need an internet connection to record your exit/entry. Ask the warden for a manual entry if you have no signal."
     );
+  }
+
+  // 0. Primary Backend Verification Endpoint
+  try {
+    if (typeof window !== "undefined") {
+      const res = await fetch("/api/gate/verify-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId, qrText, manualCode, location, source }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        return successResponse(json.data);
+      } else if (res.status === 400 || res.status === 403) {
+        return errorResponse(json.code || "SCAN_REJECTED", json.message || "Scan verification rejected", json.details);
+      }
+    }
+  } catch (err) {
+    console.warn("[GateService] Backend API scan failed, falling back to local verification:", err);
   }
 
   // 1. Resolve QR payload (support either full QR payload or 6-character manual fallback)

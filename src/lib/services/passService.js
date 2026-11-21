@@ -337,6 +337,28 @@ export async function approvePass(passId, actorName = "Dr. John Xavier (Chief Wa
     }
   }
 
+  // 1. Try Backend API for Warden Approval
+  try {
+    if (typeof window !== "undefined") {
+      const res = await fetch(`/api/outpass/${passId}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "warden",
+          actorUserId: "W-001",
+          actorName: actorName || "Dr. John Xavier (Chief Warden)",
+          remarks: note || "Approved for campus exit",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        return errorResponse(json.code || "APPROVAL_FAILED", json.message || "Failed to approve pass");
+      }
+    }
+  } catch (err) {
+    console.warn("[PassService] Backend approvePass error:", err);
+  }
+
   return updatePassStatus(passId, PASS_STATUSES.APPROVED, actorName, note);
 }
 
@@ -350,6 +372,28 @@ export async function rejectPass(passId, actorName = "Dr. John Xavier (Chief War
   const callerRole = session?.user?.role || session?.role;
   if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
     return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  }
+
+  // 1. Try Backend API for Warden Rejection
+  try {
+    if (typeof window !== "undefined") {
+      const res = await fetch(`/api/outpass/${passId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "warden",
+          actorUserId: "W-001",
+          actorName: actorName || "Dr. John Xavier (Chief Warden)",
+          remarks: reason || "Curfew restriction during assessment period.",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        return errorResponse(json.code || "REJECTION_FAILED", json.message || "Failed to reject pass");
+      }
+    }
+  } catch (err) {
+    console.warn("[PassService] Backend rejectPass error:", err);
   }
 
   return updatePassStatus(passId, PASS_STATUSES.REJECTED, actorName, reason);
@@ -533,6 +577,54 @@ export async function listForDepartment({ filters = {}, page = 1, pageSize = 20 
 
   const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
 
+  // Try backend list to merge active department requests
+  try {
+    if (typeof window !== "undefined") {
+      const q = new URLSearchParams({ role: "staff", department: dept });
+      const res = await fetch(`/api/outpass/list?${q.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          for (const bp of json.data) {
+            const existingIdx = passes.findIndex((p) => p.id === bp.id || p.passNumber === bp.pass_number);
+            const mapped = {
+              ...bp,
+              id: bp.id,
+              passNumber: bp.pass_number,
+              status:
+                bp.overall_status === "PENDING_STAFF"
+                  ? PASS_STATUSES.PENDING
+                  : bp.overall_status === "STAFF_APPROVED"
+                  ? PASS_STATUSES.RECOMMENDED
+                  : bp.overall_status.toLowerCase(),
+              overallStatus: bp.overall_status,
+              type: bp.outpass_type,
+              departureTime: bp.departure_time,
+              fromTime: bp.departure_time,
+              expectedReturnTime: bp.expected_return_time,
+              toTime: bp.expected_return_time,
+              appliedAt: bp.created_at,
+              studentName: bp.student_name,
+              studentId: bp.student_id,
+              department: bp.department,
+              dept: bp.department,
+              year: bp.year || 3,
+              reason: bp.reason,
+              destination: bp.destination,
+            };
+            if (existingIdx === -1) {
+              passes.unshift(mapped);
+            } else {
+              passes[existingIdx] = { ...passes[existingIdx], ...mapped };
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[PassService] Backend listForDepartment error:", err);
+  }
+
   // Department & Year scoping
   let filtered = passes.filter((p) => {
     const passDept = p.department || p.dept || "";
@@ -648,6 +740,29 @@ export async function recommend({ passId, verdict, note = "" }) {
     if (!user.assignedYears.includes(Number(pass.year))) {
       return errorResponse("NOT_ALLOWED", "Out of assigned year scope.");
     }
+  }
+
+  // 1. Try Backend API for staff recommendation decision
+  try {
+    if (typeof window !== "undefined") {
+      const endpoint = verdict === "recommend" ? "approve" : "reject";
+      const res = await fetch(`/api/outpass/${passId}/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "staff",
+          actorUserId: user.id,
+          actorName: user.name,
+          remarks: note.trim() || (verdict === "recommend" ? "Academic standing verified and cleared." : "Declined by Department."),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        return errorResponse(json.code || "DECISION_FAILED", json.message || "Failed to submit recommendation");
+      }
+    }
+  } catch (err) {
+    console.warn("[PassService] Backend recommend error:", err);
   }
 
   const nowIso = new Date().toISOString();
@@ -894,11 +1009,87 @@ export async function getRecommendationStats() {
   });
 }
 
+/**
+ * Real Backend Scanner Eligibility Check
+ * @param {string} studentId
+ * @param {string} [passId]
+ */
+export async function getScannerEligibility(studentId, passId) {
+  try {
+    if (typeof window !== "undefined") {
+      const q = new URLSearchParams({ studentId: studentId || "CSE-3-001" });
+      if (passId) q.set("passId", passId);
+      const res = await fetch(`/api/outpass/scanner-eligibility?${q.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.data) {
+          return successResponse(json.data);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[PassService] Backend getScannerEligibility error:", err);
+  }
+
+  // Fallback: evaluate mock passes
+  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+  let pass = null;
+  if (passId) {
+    pass = passes.find((p) => p.id === passId || p.passNumber === passId);
+  } else {
+    pass = passes.find(
+      (p) =>
+        p.studentId === studentId &&
+        ["approved", "gate_pass_issued", "out", "overdue"].includes(p.status)
+    );
+  }
+
+  if (!pass) {
+    return successResponse({
+      canAccess: false,
+      state: "NO_PASS",
+      message: "No Warden-approved pass available.",
+      allowCamera: false,
+    });
+  }
+
+  const s = (pass.status || "").toLowerCase();
+  if (s === "out" || s === "overdue") {
+    return successResponse({
+      canAccess: true,
+      state: "EXIT_COMPLETED",
+      message: "Exit completed. Duplicate EXIT scan disabled. Camera active for RETURN scan.",
+      action: "ENTRY",
+      allowCamera: true,
+      pass,
+    });
+  }
+
+  if (s === "approved" || s === "gate_pass_issued" || s === "warden_approved") {
+    return successResponse({
+      canAccess: true,
+      state: "WARDEN_APPROVED",
+      message: "Warden Approved – Scanner Available",
+      action: "EXIT",
+      allowCamera: true,
+      pass,
+    });
+  }
+
+  return successResponse({
+    canAccess: false,
+    state: "NO_PASS",
+    message: "No Warden-approved pass available.",
+    allowCamera: false,
+  });
+}
+
 export const passService = {
   listPasses,
   listForDepartment,
   getPassById,
   checkEligibility,
+  getScannerEligibility,
   applyPass,
   recommend,
   recommendPass,
