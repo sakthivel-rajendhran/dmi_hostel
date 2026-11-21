@@ -20,11 +20,30 @@ let memorySession = null;
  * @returns {Promise<{ ok: boolean, data?: object, code?: string, message?: string }>}
  */
 export async function login({ role, identifier, password }) {
-  await simulateLatency(350, 600);
+  await simulateLatency(150, 300);
 
-  // TODO(BACKEND): replace with Supabase call `supabase.auth.signInWithPassword({ email, password })`
   const cleanId = (identifier || "").trim().toLowerCase();
   const cleanPass = (password || "").trim();
+
+  // 1. Authenticate against MySQL Database
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: cleanId, password: cleanPass, role }),
+      });
+      const json = await res.json();
+      if (res.ok && json.ok && json.data) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(json.data));
+        return successResponse(json.data);
+      } else if (res.status === 401 || res.status === 403) {
+        return errorResponse(json.code || "AUTH_FAILED", json.message || "Invalid credentials.");
+      }
+    } catch (e) {
+      console.warn("MySQL login failed, checking fallback:", e);
+    }
+  }
 
   const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
   const foundUser = users.find(

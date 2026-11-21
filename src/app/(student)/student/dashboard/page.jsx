@@ -171,6 +171,7 @@ export default function StudentDashboardPage() {
   const displayYear = profile?.year || user?.year || "—";
   const displayRoom = profile?.roomNo || profile?.room || user?.roomNo || user?.room;
   const displayFloor = profile?.floorLabel || user?.floorLabel;
+  const allocationStatus = profile?.allocationStatus || user?.allocationStatus || "accepted";
 
   // Campus status
   let campusStatus = { label: "In Campus", variant: "success", dotClass: "bg-emerald-500" };
@@ -222,6 +223,35 @@ export default function StudentDashboardPage() {
 
       {/* ── Profile Completeness Banner ── */}
       <ProfileCompletenessBanner />
+
+      {/* ── Hostel Allocation Status Banner ── */}
+      {allocationStatus === "waiting_for_warden" && (
+        <div className="rounded-2xl border border-amber-300 dark:border-amber-700/60 bg-amber-50/90 dark:bg-amber-950/40 p-4 text-amber-900 dark:text-amber-200 flex items-start gap-3 shadow-xs">
+          <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs">
+            <div className="font-bold text-sm text-amber-800 dark:text-amber-300">
+              Hostel Allocation Pending Review
+            </div>
+            <p className="mt-0.5 text-amber-700/90 dark:text-amber-300/80">
+              Your resident registration has been submitted and is currently awaiting approval from the Chief Warden. You will be notified once your hostel room allocation is confirmed.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {allocationStatus === "rejected" && (
+        <div className="rounded-2xl border border-red-300 dark:border-red-700/60 bg-red-50/90 dark:bg-red-950/40 p-4 text-red-900 dark:text-red-200 flex items-start gap-3 shadow-xs">
+          <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs">
+            <div className="font-bold text-sm text-red-800 dark:text-red-300">
+              Hostel Allocation Request Rejected
+            </div>
+            <p className="mt-0.5 text-red-700/90 dark:text-red-300/80">
+              Your hostel allocation request was not approved by the Warden administration. Please meet with the Chief Warden office for assistance and resolution.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Dashboard Sections Stack ── */}
       <div className="space-y-5">

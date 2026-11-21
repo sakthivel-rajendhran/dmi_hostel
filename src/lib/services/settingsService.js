@@ -18,7 +18,7 @@ let memoryPolicy = null;
 export function getPolicy() {
   const defaults = {
     requireStaffRecommendation: WORKFLOW_CONFIG.requireStaffRecommendation || false,
-    roomAllocationMode: WORKFLOW_CONFIG.roomAllocationMode || "student_enters",
+    roomAllocationMode: WORKFLOW_CONFIG.roomAllocationMode || "warden_allocates",
     photoPolicy: WORKFLOW_CONFIG.photoPolicy || "auto_compress",
     maxPhotoBytes: WORKFLOW_CONFIG.maxPhotoBytes || 1048576,
     maxPhotoInputBytes: WORKFLOW_CONFIG.maxPhotoInputBytes || 15728640,

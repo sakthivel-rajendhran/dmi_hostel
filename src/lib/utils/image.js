@@ -69,6 +69,8 @@ export function loadImage(fileOrSrc) {
  * @returns {Promise<{ valid: boolean, error?: string, width?: number, height?: number, size?: number }>}
  */
 export async function validatePhotoFile(file) {
+  const minPx = 200;
+
   // 1. Required check
   if (!file) {
     return { valid: false, error: "Photo is required" };
@@ -86,11 +88,12 @@ export async function validatePhotoFile(file) {
     };
   }
 
-  // 3. Strict 5 MB size validation (reject larger than 5 MB immediately)
-  if (file.size > MAX_PROFILE_PHOTO_BYTES) {
+  // 3. File Size Validation (Max 15 MB / Standard 5 MB)
+  const maxBytes = 15 * 1024 * 1024;
+  if (file.size > maxBytes) {
     return {
       valid: false,
-      error: "Image size must be 5 MB or less. Please select another image.",
+      error: `File is too large (${formatBytes(file.size)}). Maximum is 15 MB.`,
       size: file.size,
     };
   }
@@ -98,6 +101,21 @@ export async function validatePhotoFile(file) {
   // 4. Image readability
   try {
     const img = await loadImage(file);
+    if (img.naturalWidth < minPx || img.naturalHeight < minPx) {
+      return {
+        valid: false,
+        error: `Image must be at least ${minPx}x${minPx} pixels`,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      };
+    }
+    return {
+      valid: true,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      size: file.size,
+    };
+  } catch (err) {
     return {
       valid: true,
       width: img.naturalWidth,

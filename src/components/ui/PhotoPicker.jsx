@@ -1,21 +1,26 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import Image from "next/image";
-import { Camera, Upload, Trash2, RotateCw, ZoomIn, Check, AlertCircle, Sparkles } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  Camera,
+  Upload,
+  Trash2,
+  RotateCw,
+  AlertCircle,
+  X,
+  FlipHorizontal,
+  Loader2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePolicy } from "@/hooks/usePolicy.js";
 import {
   validatePhotoFile,
-  loadImage,
-  renderCroppedPhoto,
   formatBytes,
   getDataUrlSizeBytes,
 } from "@/lib/utils/image.js";
 
 /**
- * Square Photo Picker with Camera Capture, Auto/Manual Square Crop,
- * and Strict &le; 1 MB Policy Compliance.
+ * Resident Photo Picker supporting Device File Upload and Live Camera Selfie.
+ * Uploads original images up to 15 MB without automatic compression or quality loss.
  *
  * @param {object} props
  * @param {string|null} props.value - Data URL or image src
@@ -33,22 +38,54 @@ export function PhotoPicker({
   required = true,
   className = "",
 }) {
-  const { policy } = usePolicy();
   const fileInputRef = useRef(null);
+  const videoRef = useRef(null);
 
   const [internalError, setInternalError] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [metaInfo, setMetaInfo] = useState(null); // { originalSize, finalSize }
+  const [metaInfo, setMetaInfo] = useState(null);
 
-  // Cropper state
-  const [croppingImage, setCroppingImage] = useState(null); // HTMLImageElement
-  const [croppingFile, setCroppingFile] = useState(null);
-  const [zoom, setZoom] = useState(1);
+  // Source selection modal (Device vs Live Camera)
+  const [showSourceChoice, setShowSourceChoice] = useState(false);
 
-  const displayError = externalError || internalError;
+  // Live Camera state
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [cameraFacing, setCameraFacing] = useState("user");
+  const [cameraLoading, setCameraLoading] = useState(false);
 
+  const rawError = externalError || internalError;
+  const displayError = typeof rawError === "string"
+    ? (rawError.includes("expected string") || rawError.includes("received object") || rawError.includes("Invalid input")
+        ? "Profile photo is required. Please choose or capture a photo."
+        : rawError)
+    : (rawError?.message?.includes?.("expected string") || rawError?.message?.includes?.("received object")
+        ? "Profile photo is required. Please choose or capture a photo."
+        : (rawError?.message || (rawError ? "Profile photo is required. Please choose or capture a photo." : null)));
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
+  // Connect stream to video element when camera is opened
+  useEffect(() => {
+    if (isCameraOpen && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+      videoRef.current.play().catch((err) => {
+        console.warn("Video playback error:", err);
+      });
+    }
+  }, [isCameraOpen, cameraStream]);
+
+  // 1. Handle Device File Selection (Original uncompressed image)
   const handleFileSelect = async (e) => {
     setInternalError(null);
+    setShowSourceChoice(false);
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -57,80 +94,137 @@ export function PhotoPicker({
 
     setIsProcessing(true);
     try {
-      // 1. Validate file against active policy
-      const validation = await validatePhotoFile(file, policy);
+      const validation = await validatePhotoFile(file);
       if (!validation.valid) {
         setInternalError(validation.error);
         setIsProcessing(false);
         return;
       }
 
-      // 2. Load image into memory for cropping
-      const img = await loadImage(file);
-      setCroppingFile(file);
-      setCroppingImage(img);
-      setZoom(1);
+      // Read original untouched binary into Data URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const meta = {
+          fileSize: file.size,
+          formattedSize: formatBytes(file.size),
+          fileName: file.name,
+          width: validation.width,
+          height: validation.height,
+        };
+        setMetaInfo(meta);
+        if (onChange) {
+          onChange(dataUrl, meta);
+        }
+        setIsProcessing(false);
+      };
+      reader.onerror = () => {
+        setInternalError("Failed to read image file from device.");
+        setIsProcessing(false);
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       setInternalError(err.message || "Failed to process selected image.");
-    } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleApplyCrop = async () => {
-    if (!croppingImage) return;
-    setIsProcessing(true);
+  // 2. Start Live Camera
+  const startCamera = async (facing = "user") => {
     setInternalError(null);
+    setShowSourceChoice(false);
+    setCameraLoading(true);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setInternalError("Camera access is not supported by this browser. Please upload from device.");
+      setCameraLoading(false);
+      return;
+    }
+
+    // Stop existing tracks if any
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(null);
+    }
 
     try {
-      // Calculate square center crop based on natural dimensions & zoom
-      const natW = croppingImage.naturalWidth;
-      const natH = croppingImage.naturalHeight;
-      const minDim = Math.min(natW, natH);
-      const cropSize = minDim / zoom;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
 
-      const cropX = Math.max(0, (natW - cropSize) / 2);
-      const cropY = Math.max(0, (natH - cropSize) / 2);
-
-      const targetPx = 400;
-
-      const result = await renderCroppedPhoto(
-        croppingImage,
-        { sx: cropX, sy: cropY, sWidth: cropSize, sHeight: cropSize, outputSize: targetPx },
-        croppingFile?.type || "image/jpeg"
-      );
-
-      const processedDataUrl = result.dataUrl;
-      const finalBytes = result.sizeBytes;
-      const originalBytes = croppingFile ? croppingFile.size : finalBytes;
-
-      const meta = {
-        originalSize: originalBytes,
-        finalSize: finalBytes,
-        originalFormatted: formatBytes(originalBytes),
-        finalFormatted: formatBytes(finalBytes),
-        width: targetPx,
-        height: targetPx,
-      };
-
-      setMetaInfo(meta);
-      setCroppingImage(null);
-      setCroppingFile(null);
-
-      if (onChange) {
-        onChange(processedDataUrl, meta);
-      }
+      setCameraStream(stream);
+      setCameraFacing(facing);
+      setIsCameraOpen(true);
     } catch (err) {
-      setInternalError(err.message || "Failed to crop and compress photo.");
+      console.error("Camera access error:", err);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setInternalError("Camera permission denied. Please allow camera access or choose a file from your device.");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        setInternalError("No camera detected. Please choose a file from your device.");
+      } else {
+        setInternalError("Unable to open camera. Please choose a file from your device.");
+      }
     } finally {
-      setIsProcessing(false);
+      setCameraLoading(false);
     }
   };
 
-  const handleCancelCrop = () => {
-    setCroppingImage(null);
-    setCroppingFile(null);
-    setInternalError(null);
+  // 3. Stop Camera
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(null);
+    }
+    setIsCameraOpen(false);
+  };
+
+  // 4. Snap Photo from Camera Stream (High-res snapshot without compression)
+  const captureSelfie = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+
+    // Mirror image for front-facing camera
+    if (cameraFacing === "user") {
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+    }
+
+    ctx.drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.98);
+
+    stopCamera();
+
+    const sizeBytes = getDataUrlSizeBytes(dataUrl);
+    const meta = {
+      fileSize: sizeBytes,
+      formattedSize: formatBytes(sizeBytes),
+      fileName: "camera-selfie.jpg",
+      width,
+      height,
+    };
+    setMetaInfo(meta);
+    if (onChange) {
+      onChange(dataUrl, meta);
+    }
+  };
+
+  // 5. Flip Camera (Front / Back)
+  const flipCamera = () => {
+    const nextFacing = cameraFacing === "user" ? "environment" : "user";
+    startCamera(nextFacing);
   };
 
   const handleRemovePhoto = () => {
@@ -141,99 +235,180 @@ export function PhotoPicker({
     }
   };
 
+  const triggerUploadClick = () => {
+    setShowSourceChoice(true);
+  };
+
+  const displaySrc = typeof value === "string" ? value : (value?.dataUrl || value?.url || null);
+
   return (
     <div className={cn("w-full flex flex-col items-center", className)}>
-      {/* Label & Policy badge */}
+      {/* Label & Limit text */}
       <div className="w-full flex items-center justify-between mb-2">
         <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
           {label} {required && <span className="text-rose-500">*</span>}
         </label>
         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-          {policy.photoPolicy === "reject" ? "Max 1 MB strict" : "Auto-compressed (≤1 MB)"}
+          Maximum 15 MB
         </span>
       </div>
 
-      {/* Hidden file input supporting camera capture on mobile */}
+      {/* Hidden file input for device photo selection */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        capture="user"
         className="hidden"
         onChange={handleFileSelect}
       />
 
-      {/* 1. Modal / Overlay Cropper if an image was picked */}
-      {croppingImage ? (
-        <div className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col items-center gap-3">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-            Adjust Square Crop & Zoom
-          </p>
+      {/* MODAL 1: Choose Photo Source (Device vs Live Camera) */}
+      {showSourceChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Select Photo Method
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSourceChoice(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-          <div className="relative w-44 h-44 rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-md bg-black flex items-center justify-center">
-            {/* Visual representation of the crop */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={croppingImage.src}
-              alt="Crop preview"
-              style={{
-                transform: `scale(${zoom})`,
-                transition: "transform 0.1s ease-out",
-                maxHeight: "100%",
-                maxWidth: "100%",
-                objectFit: "contain",
-              }}
-            />
-            {/* Square crop crosshair guide */}
-            <div className="absolute inset-0 border border-white/40 pointer-events-none rounded-2xl" />
-          </div>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              {/* Option A: Upload from Device */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSourceChoice(false);
+                  fileInputRef.current?.click();
+                }}
+                className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 transition group text-center"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-2.5 group-hover:scale-105 transition-transform">
+                  <Upload className="w-6 h-6" />
+                </div>
+                <span className="text-xs font-bold text-slate-900 dark:text-white">
+                  Upload Photo
+                </span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  From Device Files
+                </span>
+              </button>
 
-          {/* Zoom Slider */}
-          <div className="w-full max-w-[220px] flex items-center gap-2">
-            <ZoomIn className="w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="range"
-              min="1"
-              max="2.5"
-              step="0.05"
-              value={zoom}
-              onChange={(e) => setZoom(parseFloat(e.target.value))}
-              className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-            />
-            <span className="text-[11px] font-mono text-slate-500 w-8 text-right">
-              {zoom.toFixed(1)}x
-            </span>
-          </div>
+              {/* Option B: Camera Selfie */}
+              <button
+                type="button"
+                onClick={() => startCamera("user")}
+                className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 transition group text-center"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-2.5 group-hover:scale-105 transition-transform">
+                  <Camera className="w-6 h-6" />
+                </div>
+                <span className="text-xs font-bold text-slate-900 dark:text-white">
+                  Take Selfie
+                </span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Open Camera
+                </span>
+              </button>
+            </div>
 
-          {/* Crop Action Buttons */}
-          <div className="flex items-center gap-2 w-full max-w-[240px]">
-            <button
-              type="button"
-              onClick={handleCancelCrop}
-              className="flex-1 py-1.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={handleApplyCrop}
-              className="flex-1 py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all"
-            >
-              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              {isProcessing ? "Processing..." : "Done"}
-            </button>
+            <p className="text-[10px] text-center text-slate-400 dark:text-slate-500">
+              JPG, PNG, WebP • Maximum 15 MB • Minimum 200 × 200 px
+            </p>
           </div>
         </div>
-      ) : value ? (
-        /* 2. Photo Chosen State (Preview + Stats + Actions) */
+      )}
+
+      {/* MODAL 2: Live Camera Viewfinder */}
+      {isCameraOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-slate-800 p-5 shadow-2xl flex flex-col items-center gap-4 text-white">
+            <div className="w-full flex items-center justify-between">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-indigo-400" /> Live Camera Selfie
+              </span>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="p-1 rounded-full text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-slate-800">
+              {cameraLoading && (
+                <div className="flex flex-col items-center gap-2 text-slate-400">
+                  <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                  <span className="text-xs">Initializing camera...</span>
+                </div>
+              )}
+
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={cn(
+                  "w-full h-full object-cover",
+                  cameraFacing === "user" ? "-scale-x-100" : ""
+                )}
+              />
+
+              {/* Viewfinder Guideline Oval */}
+              <div className="absolute inset-0 border-2 border-indigo-400/40 rounded-2xl pointer-events-none flex items-center justify-center">
+                <div className="w-48 h-60 border border-dashed border-white/50 rounded-full" />
+              </div>
+            </div>
+
+            {/* Camera Controls */}
+            <div className="flex items-center justify-between w-full px-4">
+              <button
+                type="button"
+                onClick={flipCamera}
+                title="Switch camera"
+                className="p-3 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              >
+                <FlipHorizontal className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={captureSelfie}
+                className="py-3 px-6 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition transform active:scale-95"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Snap Photo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="text-xs font-semibold text-slate-400 hover:text-white px-2 py-1 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Display: Chosen Photo vs Empty Dropzone */}
+      {displaySrc ? (
+        /* Photo Chosen State (Preview + Actions) */
         <div className="w-full flex flex-col items-center">
           <div className="relative group">
             <div className="relative w-36 h-36 rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-md bg-slate-100 dark:bg-slate-800">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={value}
-                alt="Student Profile"
+                src={displaySrc}
+                alt="Student Resident Photo"
                 className="w-full h-full object-cover"
               />
             </div>
@@ -242,7 +417,7 @@ export function PhotoPicker({
             <div className="absolute top-1.5 right-1.5 flex gap-1">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={triggerUploadClick}
                 title="Change Photo"
                 className="p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition-colors"
               >
@@ -259,32 +434,28 @@ export function PhotoPicker({
             </div>
           </div>
 
-          {/* Size Info Badge */}
-          {metaInfo && (
-            <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 px-2.5 py-0.5 rounded-full">
-              <Sparkles className="w-3 h-3 flex-shrink-0" />
-              <span>
-                {metaInfo.originalFormatted !== metaInfo.finalFormatted
-                  ? `Original ${metaInfo.originalFormatted} → ${metaInfo.finalFormatted}`
-                  : `Photo Size: ${metaInfo.finalFormatted}`}
-              </span>
-            </div>
-          )}
-
-          <div className="mt-2 flex items-center gap-3">
+          <div className="mt-2.5 flex items-center gap-3">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={triggerUploadClick}
               className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
             >
               <RotateCw className="w-3 h-3" /> Change Photo
             </button>
+            <span className="text-slate-300 dark:text-slate-700">•</span>
+            <button
+              type="button"
+              onClick={handleRemovePhoto}
+              className="text-xs font-semibold text-rose-500 hover:underline flex items-center gap-1"
+            >
+              <Trash2 className="w-3 h-3" /> Remove
+            </button>
           </div>
         </div>
       ) : (
-        /* 3. Empty Dropzone State */
+        /* Empty Dropzone State (Preserving exact layout) */
         <div
-          onClick={() => fileInputRef.current?.click()}
+          onClick={triggerUploadClick}
           className={cn(
             "w-full h-36 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 cursor-pointer transition-all duration-200",
             displayError
@@ -303,7 +474,7 @@ export function PhotoPicker({
             Click to browse or take camera selfie
           </span>
           <span className="text-[9px] text-slate-400 dark:text-slate-500 mt-1">
-            JPG, PNG, WebP • Min 200x200 px
+            JPG, PNG, WebP • Maximum 15 MB • Minimum 200 × 200 px
           </span>
         </div>
       )}
