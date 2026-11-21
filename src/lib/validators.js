@@ -48,6 +48,7 @@ export const regNoSchema = z
  */
 const FLOOR_PREFIX_MAP = {
   GF: { prefix: "G", label: "Ground Floor", min: 1, max: 30 },
+  F1: { prefix: "1", label: "1st Floor", min: 101, max: 130 },
   F2: { prefix: "2", label: "2nd Floor", min: 201, max: 230 },
   F3: { prefix: "3", label: "3rd Floor", min: 301, max: 330 },
   F4: { prefix: "4", label: "4th Floor", min: 401, max: 430 },
@@ -55,13 +56,14 @@ const FLOOR_PREFIX_MAP = {
 
 /**
  * Returns floor label corresponding to a room number prefix
- * @param {string} roomNo e.g. "G05", "204", "304", "412"
+ * @param {string} roomNo e.g. "G05", "101", "204", "304", "412"
  */
 export function getFloorForRoom(roomNo = "") {
   const clean = roomNo.trim().toUpperCase();
   if (!clean) return null;
   const p = clean.charAt(0);
   if (p === "G") return "Ground Floor";
+  if (p === "1") return "1st Floor";
   if (p === "2") return "2nd Floor";
   if (p === "3") return "3rd Floor";
   if (p === "4") return "4th Floor";
@@ -72,50 +74,39 @@ export function getFloorForRoom(roomNo = "") {
  * Computes Academic Batch from Year (e.g. Year 3 in 2026 -> "2024 – 2028")
  * @param {number|string} year
  * @param {number} [currentYear=2026]
+ * @param {number} [courseDuration=4]
  * @returns {string}
  */
-export function computeBatch(year, currentYear = 2026) {
+export function computeBatch(year, currentYear = 2026, courseDuration = 4) {
+  let curr = Number(currentYear);
+  let duration = Number(courseDuration);
+  if (!curr || curr < 100) {
+    duration = curr || 4;
+    curr = 2026;
+  }
   const y = Number(year) || 1;
-  const startYear = currentYear - (y - 1);
-  const endYear = startYear + 4;
+  const startYear = curr - (y - 1);
+  const endYear = startYear + (duration || 4);
   return `${startYear} – ${endYear}`;
 }
 
-// Room Number Base Regex Schema: G01-G30, 201-230, 301-330, 401-430
 export const roomNoSchema = z
   .string()
   .trim()
   .toUpperCase()
   .min(1, "Room number is required")
-  .regex(
-    /^(G\d{2}|[2-4]\d{2})$/,
-    "Room must be in format G01–G30, 201–230, 301–330, or 401–430"
-  )
-  .superRefine((room, ctx) => {
-    const prefix = room.charAt(0);
-    const numPart = parseInt(room.substring(1), 10);
+  .max(10, "Room number cannot exceed 10 characters");
 
-    if (prefix === "G") {
-      if (isNaN(numPart) || numPart < 1 || numPart > 30) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Room number on Ground Floor must be between G01 and G30",
-        });
-      }
-    } else {
-      const fullNum = parseInt(room, 10);
-      const floorDigits = parseInt(prefix, 10);
-      const min = floorDigits * 100 + 1;
-      const max = floorDigits * 100 + 30;
-
-      if (isNaN(fullNum) || fullNum < min || fullNum > max) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `Room number must be between ${min} and ${max}`,
-        });
-      }
-    }
-  });
+export const step1Schema = z.object({
+  name: nameSchema,
+  email: gmailSchema,
+  roomNo: roomNoSchema,
+  phone: indianPhoneSchema,
+  dept: z.enum(["CSE", "IT", "ECE", "EEE", "MECH", "CIVIL", "AI&DS"], {
+    message: "Select your engineering department",
+  }),
+  year: z.coerce.number().min(1).max(4),
+});
 
 /**
  * Validates that room number matches the specific floor
@@ -155,12 +146,41 @@ export function validateRoomMatchesFloor(floor, room) {
 }
 
 // Student Photo Data URL Schema
-export const photoSchema = z
-  .string({ required_error: "Photo is required" })
-  .min(1, "Photo is required")
-  .refine((val) => val && val.startsWith("data:image/"), {
-    message: "Valid photo is required",
-  });
+export const photoSchema = z.preprocess(
+  (val) => {
+    if (!val) return "";
+    if (typeof val === "string") return val;
+    if (typeof val === "object") {
+      if (typeof val.dataUrl === "string") return val.dataUrl;
+      if (typeof val.url === "string") return val.url;
+      if (typeof val.photo === "string") return val.photo;
+      if (typeof val.photoUrl === "string") return val.photoUrl;
+      if (typeof val.src === "string") return val.src;
+      return "";
+    }
+    return "";
+  },
+  z
+    .string({
+      required_error: "Profile photo is required.",
+      invalid_type_error: "Profile photo is required. Please choose or capture a photo.",
+    })
+    .min(1, "Profile photo is required.")
+    .refine(
+      (val) =>
+        Boolean(
+          val &&
+          (val.startsWith("data:image/") ||
+           val.startsWith("/api/") ||
+           val.startsWith("http://") ||
+           val.startsWith("https://") ||
+           val.startsWith("blob:"))
+        ),
+      {
+        message: "Valid resident photo is required.",
+      }
+    )
+);
 
 // Password Rules Schema
 export const passwordRulesSchema = z
@@ -310,28 +330,16 @@ export const studentProfileSchema = z.object({
 });
 
 // WIZARD SCHEMAS
-
-// Wizard Step 1: Account
-export const step1Schema = z.object({
-  name: nameSchema,
-  email: gmailSchema,
-  dept: z.enum(["CSE", "IT", "ECE", "EEE", "MECH", "CIVIL", "AI&DS"], {
-    message: "Select your engineering department",
-  }),
-  year: z.coerce.number().min(1).max(4),
-});
+// (Wizard Step 1: step1Schema is defined above with roomNo and phone)
 
 // Wizard Step 2 Builder: Academic & Hostel Allocation
-export function getStep2Schema(allocationMode = "student_enters") {
-  const isStudentEnters = allocationMode === "student_enters";
-
+export function getStep2Schema(allocationMode = "warden_allocates") {
   let base = z.object({
     regNo: regNoSchema,
-    programme: z.enum(["B.E.", "B.Tech", "M.E.", "MBA", "MCA", "Diploma"], {
-      message: "Select your academic programme",
-    }),
-    section: z.enum(["A", "B", "C"]).optional().or(z.literal("")),
-    phone: phoneSchema.optional().or(z.literal("")),
+    guardianName: nameSchema,
+    guardianRelation: z.enum(["Father", "Mother", "Guardian", "Other"]).default("Father"),
+    guardianPhone: indianPhoneSchema,
+    phone: z.string().optional(),
     guardian: z
       .object({
         name: nameSchema.optional(),
@@ -339,42 +347,24 @@ export function getStep2Schema(allocationMode = "student_enters") {
         phone: phoneSchema.optional(),
       })
       .optional(),
-    guardianName: z.string().optional(),
-    guardianPhone: z.string().optional(),
-    guardianRelation: z.string().optional(),
-    floor: isStudentEnters
-      ? z.enum(["GF", "F2", "F3", "F4"], { message: "Select your hostel floor" })
-      : z.string().optional().nullable(),
-    roomNo: isStudentEnters
-      ? roomNoSchema
-      : z.string().optional().nullable(),
+    floor: z.string().optional().nullable(),
+    roomNo: z.string().optional().nullable(),
   });
 
-  return base
-    .refine((data) => {
-      if (data.phone && data.guardian?.phone) {
-        return data.phone !== data.guardian.phone;
+  return base.refine(
+    (data) => {
+      const studentPhone = data.phone ? data.phone.trim() : "";
+      const guardPhone = data.guardianPhone ? data.guardianPhone.trim() : (data.guardian?.phone ? data.guardian.phone.trim() : "");
+      if (studentPhone && guardPhone) {
+        return studentPhone !== guardPhone;
       }
       return true;
-    }, {
+    },
+    {
       message: "Guardian phone number must differ from student mobile",
-      path: ["guardian", "phone"],
-    })
-    .refine(
-      (data) => {
-        if (!isStudentEnters) return true;
-        if (!data.floor || !data.roomNo) return true;
-        const check = validateRoomMatchesFloor(data.floor, data.roomNo);
-        return check.valid;
-      },
-      (data) => {
-        const check = validateRoomMatchesFloor(data.floor, data.roomNo);
-        return {
-          message: check.error || "Room number prefix must match floor",
-          path: ["roomNo"],
-        };
-      }
-    );
+      path: ["guardianPhone"],
+    }
+  );
 }
 
 export const step2Schema = getStep2Schema("student_enters");
@@ -385,7 +375,7 @@ export const step3Schema = z.object({
 });
 
 // Unified Registration Schema
-export function getRegisterSchema(allocationMode = "student_enters") {
+export function getRegisterSchema(allocationMode = "warden_allocates") {
   const step2 = getStep2Schema(allocationMode);
 
   return step1Schema
@@ -398,7 +388,7 @@ export function getRegisterSchema(allocationMode = "student_enters") {
     );
 }
 
-export const registerSchema = getRegisterSchema("student_enters");
+export const registerSchema = getRegisterSchema("warden_allocates");
 
 // Sign Up Schema (Alias for backwards compatibility)
 export const signUpSchema = registerSchema;

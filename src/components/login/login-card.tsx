@@ -97,21 +97,23 @@ export function LoginCard({ onOpenRegister, onOpenForgotPassword }: LoginCardPro
 
   return (
     <motion.div
+      suppressHydrationWarning
       initial={{ opacity: 0, scale: 0.97, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.45, ease: "easeOut" }}
       style={{
-        padding: "clamp(16px, 2.4vh, 32px) clamp(20px, 2.4vw, 36px)",
+        padding: "clamp(18px, 2.5vh, 30px) clamp(20px, 2.4vw, 36px)",
       }}
-      className="relative w-full max-w-[490px] mx-auto rounded-[32px] h-[clamp(580px,82vh,700px)] bg-white/88 dark:bg-[#090F2C]/90 backdrop-blur-2xl border border-white/75 dark:border-white/12 shadow-[0_25px_60px_rgba(5,10,50,0.28)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.7)] select-none transition-all duration-300 short-tight-card flex flex-col overflow-hidden"
+      className="relative w-full max-w-[490px] mx-auto rounded-[32px] h-auto bg-white/90 dark:bg-[#090F2C]/92 backdrop-blur-2xl border border-white/75 dark:border-white/12 shadow-[0_25px_60px_rgba(5,10,50,0.28)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.7)] select-none transition-all duration-300 flex flex-col"
     >
       {/* Top Circular Crest Badge with Flanking Lines */}
       <div className="flex items-center justify-center gap-3 -mt-1 mb-[clamp(4px,0.9vh,12px)]">
         <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300/80 dark:via-slate-700 to-transparent" />
         <div
+          suppressHydrationWarning
           style={{
-            width: "clamp(74px, 11.2vh, 102px)",
-            height: "clamp(74px, 11.2vh, 102px)",
+            width: "clamp(68px, 9.5vh, 92px)",
+            height: "clamp(68px, 9.5vh, 92px)",
           }}
           className="short-badge rounded-full bg-white dark:bg-[#070D28] border-2 border-white/90 dark:border-white/20 shadow-xl flex items-center justify-center p-1 relative flex-shrink-0 overflow-hidden"
         >
@@ -132,8 +134,9 @@ export function LoginCard({ onOpenRegister, onOpenForgotPassword }: LoginCardPro
       {/* Card Header Titles */}
       <div className="text-center">
         <h2
+          suppressHydrationWarning
           style={{
-            fontSize: "clamp(1.5rem, 3.8vh, 2.5rem)",
+            fontSize: "clamp(1.4rem, 3.2vh, 2.2rem)",
             lineHeight: 1.15,
           }}
           className="font-extrabold text-[#111936] dark:text-white tracking-tight"
@@ -141,8 +144,9 @@ export function LoginCard({ onOpenRegister, onOpenForgotPassword }: LoginCardPro
           Welcome Back!
         </h2>
         <p
+          suppressHydrationWarning
           style={{
-            fontSize: "clamp(0.875rem, 2.1vh, 1.25rem)",
+            fontSize: "clamp(0.8rem, 1.8vh, 1.1rem)",
           }}
           className="text-[#5B6485] dark:text-slate-300 mt-1 font-normal"
         >
@@ -150,10 +154,11 @@ export function LoginCard({ onOpenRegister, onOpenForgotPassword }: LoginCardPro
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 thin-scrollbar flex flex-col justify-between">
+      <div suppressHydrationWarning className="relative w-full flex flex-col justify-between">
         <div>
           {/* Role Segmented Selector */}
           <div
+            suppressHydrationWarning
             style={{
               marginTop: "clamp(6px, 1.2vh, 12px)",
             }}
@@ -189,6 +194,7 @@ export function LoginCard({ onOpenRegister, onOpenForgotPassword }: LoginCardPro
 
       {/* Login Form */}
       <form
+        suppressHydrationWarning
         onSubmit={handleSubmit(onSubmit)}
         style={{
           marginTop: "clamp(8px, 1.6vh, 16px)",

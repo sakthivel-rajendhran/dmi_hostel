@@ -11,13 +11,41 @@ import { PASS_STATUSES } from "@/config/status.js";
 import { ROLES } from "@/config/roles.js";
 import { getCurrentSession } from "./authService.js";
 import { getPolicy } from "@/lib/services/settingsService.js";
-import { computeBatch, validateRoomMatchesFloor, getRegisterSchema } from "@/lib/validators.js";
+import { computeBatch, validateRoomMatchesFloor, getRegisterSchema, getFloorForRoom } from "@/lib/validators.js";
 import { notificationService } from "./notificationService.js";
 
 /**
  * List students with search, filters and pagination
  */
-export async function listStudents({ page = 1, pageSize = 10, search = "", department = "", year = "", floor = "" } = {}) {
+export async function listStudents({ page = 1, pageSize = 10, search = "", department = "", year = "", floor = "", status = "accepted" } = {}) {
+  // 1. Query MySQL API if in browser
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      if (department) params.set("department", department);
+      if (year) params.set("year", String(year));
+      if (search) params.set("search", search);
+      if (floor) params.set("floor", floor);
+
+      const res = await fetch(`/api/students?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          const paginationMeta = paginate(json.data, page, pageSize);
+          return successResponse(paginationMeta.items, {
+            total: paginationMeta.total,
+            page: paginationMeta.page,
+            pageSize: paginationMeta.pageSize,
+            totalPages: paginationMeta.totalPages,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch students from MySQL /api/students, falling back:", e);
+    }
+  }
+
   await simulateLatency(150, 300);
   const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
 
@@ -64,6 +92,22 @@ export async function listStudents({ page = 1, pageSize = 10, search = "", depar
  */
 export async function getStudentById(studentId) {
   await simulateLatency(100, 200);
+
+  // 1. Query MySQL profile API
+  if (typeof window !== "undefined" && studentId) {
+    try {
+      const res = await fetch(`/api/student/profile?studentId=${encodeURIComponent(studentId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.data) {
+          return successResponse(json.data);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch student from MySQL API, trying fallback:", e);
+    }
+  }
+
   const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
   const userMatch = users.find((u) => u.id === studentId || u.studentId === studentId);
 
@@ -120,6 +164,27 @@ export async function getStudentById(studentId) {
 export async function checkRegNoAvailable({ regNo, excludeStudentId } = {}) {
   if (!regNo) return { available: true };
   const cleanRegNo = String(regNo).trim().toUpperCase();
+
+  // Check MySQL first
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/auth/check-reg", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regNo: cleanRegNo, excludeStudentId }),
+      });
+      const data = await res.json();
+      if (data && data.available === false) {
+        return {
+          available: false,
+          error: data.error || "REGNO_EXISTS",
+          message: data.message || "Register Number is already registered in MySQL.",
+        };
+      }
+    } catch (e) {
+      console.warn("Could not check MySQL for regNo, falling back:", e);
+    }
+  }
 
   const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
   const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
@@ -221,20 +286,20 @@ export async function getProfileCompleteness(studentId) {
     missingKeys.push("guardianPhone");
   }
 
-  // 5. Floor & Room: Required only if NOT unallocated
-  const isUnallocated = s.hostelVerification === "unallocated";
-  if (!isUnallocated) {
-    if (!s.floor || String(s.floor).trim() === "") {
-      missing.push("Floor");
-      missingKeys.push("floor");
-    }
-    if (!s.room && !s.roomNo && !s.roomNumber) {
-      missing.push("Room Number");
-      missingKeys.push("room");
-    }
+  // 5. Home Address
+  if (!s.address || String(s.address).trim() === "") {
+    missing.push("Home Address");
+    missingKeys.push("address");
   }
 
-  const totalRequired = isUnallocated ? 4 : 6;
+  // 6. Blood Group
+  if (!s.bloodGroup || String(s.bloodGroup).trim() === "") {
+    missing.push("Blood Group");
+    missingKeys.push("bloodGroup");
+  }
+
+  const isUnallocated = s.hostelVerification === "unallocated";
+  const totalRequired = 6;
   const filledCount = totalRequired - missing.length;
   const percentage = Math.max(0, Math.min(100, Math.round((filledCount / totalRequired) * 100)));
 
@@ -256,7 +321,8 @@ export async function registerStudent(payload) {
   await simulateLatency(300, 600);
 
   const policy = getPolicy();
-  const mode = policy.roomAllocationMode; // 'student_enters' or 'warden_allocates'
+  const hasRoomSelection = Boolean(payload?.floor && payload?.roomNo);
+  const mode = hasRoomSelection ? (policy.roomAllocationMode || "student_enters") : "warden_allocates";
 
   // Validate payload against Zod schema
   const schema = getRegisterSchema(mode);
@@ -289,30 +355,68 @@ export async function registerStudent(payload) {
   // 3. Handle Hostel Allocation according to roomAllocationMode
   let floor = null;
   let floorLabel = null;
-  let roomNo = null;
-  let hostelVerification = "unallocated";
+  let roomNo = data.roomNo ? String(data.roomNo).trim().toUpperCase() : null;
+  let hostelVerification = roomNo ? "allocated" : "unallocated";
 
-  if (mode === "student_enters") {
+  if (roomNo) {
+    floor = data.floor || getFloorForRoom(roomNo);
+    const flConfig = WORKFLOW_CONFIG.floors?.find((f) => f.id === floor);
+    floorLabel = flConfig ? flConfig.label : floor;
+  } else if (hasRoomSelection && mode === "student_enters") {
     floor = data.floor;
-    const flConfig = WORKFLOW_CONFIG.floors.find((f) => f.id === floor);
+    const flConfig = WORKFLOW_CONFIG.floors?.find((f) => f.id === floor);
     floorLabel = flConfig ? flConfig.label : floor;
     roomNo = data.roomNo;
-
-    // Check room capacity
-    const roomCheck = await checkRoomAvailability({ floor, roomNo });
-    if (!roomCheck.available) {
-      return errorResponse("ROOM_FULL", roomCheck.message || "Selected room is already full.");
-    }
     hostelVerification = "pending";
   } else {
-    // Mode is warden_allocates: floor & room forced to null
+    // Mode is warden_allocates and no room provided: floor & room null
     floor = null;
     floorLabel = null;
     roomNo = null;
     hostelVerification = "unallocated";
   }
 
-  // 4. Generate Student ID (e.g. CSE-1-002)
+  // 4. Save directly into MySQL database (Do NOT store in browser mock storage)
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: data.name,
+          email: cleanEmail,
+          dept: data.dept,
+          year: data.year,
+          phone: data.phone || "",
+          regNo: data.regNo,
+          guardianName: data.guardianName || "",
+          guardianPhone: data.guardianPhone || "",
+          guardianRelation: data.guardianRelation || "Father",
+          floor,
+          roomNo,
+          photoDataUrl: data.photoDataUrl || null,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        return errorResponse(
+          json.code || "REGISTRATION_FAILED",
+          json.message || "Failed to create resident account in MySQL."
+        );
+      }
+
+      // DO NOT store in browser localStorage. Return real MySQL database record.
+      return successResponse(json.data);
+    } catch (apiErr) {
+      console.error("MySQL registration API failed:", apiErr);
+      return errorResponse("NETWORK_ERROR", "Could not connect to MySQL database service.");
+    }
+  }
+
+  // Server-side fallback: Generate Student ID (e.g. CSE-1-002)
   const existingIds = [
     ...students.map((s) => s.studentId || s.id),
     ...users.map((u) => u.studentId || u.id),
@@ -324,7 +428,6 @@ export async function registerStudent(payload) {
     existingIds,
   });
 
-  const batch = computeBatch(data.year, 4);
   const defaultPassword = WORKFLOW_CONFIG.defaultPassword;
 
   // 5. Construct full record
@@ -351,7 +454,7 @@ export async function registerStudent(payload) {
     phone: data.phone ? String(data.phone).trim() : "",
     guardianName: data.guardianName ? String(data.guardianName).trim() : "",
     guardianPhone: data.guardianPhone ? String(data.guardianPhone).trim() : "",
-    guardianRelation: "Parent",
+    guardianRelation: data.guardianRelation || "Father",
     photo: data.photoDataUrl || null,
     photoDataUrl: data.photoDataUrl || null,
     avatar: data.name.slice(0, 2).toUpperCase(),
@@ -362,45 +465,10 @@ export async function registerStudent(payload) {
     createdAt: new Date().toISOString(),
   };
 
-  // 6. Save in STUDENTS and USERS mock storage
-  setPersistentMock(STORAGE_KEYS.STUDENTS, [newStudent, ...students]);
-
-  const newUser = {
-    id: studentId,
-    studentId,
-    name: newStudent.name,
-    email: newStudent.email,
-    gmail: newStudent.email,
-    role: "student",
-    mustChangePassword: true,
-    password: defaultPassword,
-    dept: newStudent.dept,
-    year: newStudent.year,
-    programme: newStudent.programme,
-    section: newStudent.section,
-    batch: newStudent.batch,
-    regNumber: newStudent.regNumber,
-    regNo: newStudent.regNo,
-    floor: newStudent.floor,
-    floorLabel: newStudent.floorLabel,
-    room: newStudent.room,
-    roomNo: newStudent.roomNo,
-    roomNumber: newStudent.roomNumber,
-    hostelVerification: newStudent.hostelVerification,
-    phone: newStudent.phone,
-    guardianName: newStudent.guardianName,
-    guardianPhone: newStudent.guardianPhone,
-    photo: newStudent.photo,
-    photoDataUrl: newStudent.photoDataUrl,
-    avatar: newStudent.avatar,
-    createdAt: newStudent.createdAt,
-  };
-  setPersistentMock(STORAGE_KEYS.USERS, [newUser, ...users]);
-
   return successResponse({
     studentId,
     defaultPassword,
-    user: newUser,
+    user: newStudent,
     mode,
   });
 }
@@ -507,6 +575,35 @@ export async function updateStudent(studentId, patch) {
   const callerRole = session?.user?.role || session?.role;
   if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
     return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  }
+
+  // Handle permanent photo upload to MySQL backend
+  if (patch.photo || patch.photoDataUrl) {
+    const rawPhoto = patch.photo || patch.photoDataUrl;
+    if (typeof window !== "undefined" && rawPhoto && String(rawPhoto).startsWith("data:")) {
+      try {
+        const photoRes = await fetch("/api/student/profile/photo", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-student-id": studentId,
+          },
+          body: JSON.stringify({
+            studentId,
+            photoDataUrl: rawPhoto,
+            fileName: "resident-photo.jpg",
+          }),
+        });
+        const photoJson = await photoRes.json();
+        if (photoJson.ok && photoJson.photoUrl) {
+          patch.photo = photoJson.photoUrl;
+          patch.photoUrl = photoJson.photoUrl;
+          patch.photoDataUrl = photoJson.photoUrl;
+        }
+      } catch (err) {
+        console.warn("Could not save photo to MySQL backend:", err);
+      }
+    }
   }
 
   // 1. Update in USERS
@@ -620,7 +717,20 @@ export async function listForDepartment({ filters = {}, page = 1, pageSize = 20 
   const isStaff = user.role === ROLES.STAFF;
   const assignedYears = Array.isArray(user.assignedYears) ? user.assignedYears : [];
 
-  const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
+  let students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/students?department=${encodeURIComponent(dept)}&status=accepted`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
+          students = json.data;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch department students from MySQL:", e);
+    }
+  }
   const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
 
   // Department & Year scope

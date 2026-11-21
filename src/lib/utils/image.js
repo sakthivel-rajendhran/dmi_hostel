@@ -72,16 +72,10 @@ export function loadImage(fileOrSrc) {
  * @param {object|string} [policyOrMode]
  * @returns {Promise<{ valid: boolean, error?: string, width?: number, height?: number, size?: number, requiresCompression?: boolean, helperNotice?: string }>}
  */
-export async function validatePhotoFile(file, policyOrMode = "auto_compress") {
-  const policyMode =
-    typeof policyOrMode === "string"
-      ? policyOrMode
-      : policyOrMode?.photoPolicy || WORKFLOW_CONFIG.photoPolicy || "auto_compress";
-
-  const maxBytes = WORKFLOW_CONFIG.maxPhotoBytes || 1048576; // 1 MB
-  const maxInputBytes = WORKFLOW_CONFIG.maxPhotoInputBytes || 15728640; // 15 MB
-  const minPx = WORKFLOW_CONFIG.photoMinPx || 200;
-  const allowedMimes = WORKFLOW_CONFIG.photoAccept || ["image/jpeg", "image/png", "image/webp"];
+export async function validatePhotoFile(file) {
+  const maxBytes = 15 * 1024 * 1024; // 15 MB original upload limit
+  const minPx = 200;
+  const allowedMimes = ["image/jpeg", "image/png", "image/webp"];
 
   // 1. Required check
   if (!file) {
@@ -101,22 +95,12 @@ export async function validatePhotoFile(file, policyOrMode = "auto_compress") {
     };
   }
 
-  // 3. File Size Validation per Policy Mode
-  if (policyMode === "reject") {
-    if (file.size > maxBytes) {
-      return {
-        valid: false,
-        error: `File is too large (${formatBytes(file.size)}). Maximum is 1 MB.`,
-      };
-    }
-  } else {
-    // Mode: auto_compress
-    if (file.size > maxInputBytes) {
-      return {
-        valid: false,
-        error: `File is too large (${formatBytes(file.size)}). Maximum is 15 MB.`,
-      };
-    }
+  // 3. File Size Validation (Max 15 MB)
+  if (file.size > maxBytes) {
+    return {
+      valid: false,
+      error: `File is too large (${formatBytes(file.size)}). Maximum is 15 MB.`,
+    };
   }
 
   // 4. Image Readability & Minimum Dimension Validation
@@ -132,19 +116,11 @@ export async function validatePhotoFile(file, policyOrMode = "auto_compress") {
       };
     }
 
-    const requiresCompression = file.size > maxBytes;
-    const helperNotice =
-      requiresCompression && policyMode === "auto_compress"
-        ? "Large photo detected, it will be compressed to under 1 MB"
-        : null;
-
     return {
       valid: true,
       width: img.naturalWidth,
       height: img.naturalHeight,
       size: file.size,
-      requiresCompression,
-      helperNotice,
     };
   } catch (err) {
     return {

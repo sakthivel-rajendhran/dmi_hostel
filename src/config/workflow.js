@@ -97,7 +97,7 @@ export const WORKFLOW_CONFIG = {
   roomCapacity: 4,
 
   // Operation 1: Switchable Room Allocation Mode ('student_enters' | 'warden_allocates')
-  roomAllocationMode: "student_enters",
+  roomAllocationMode: "warden_allocates",
 
   // Operation 2: Switchable Photo Upload Policy ('auto_compress' | 'reject')
   photoPolicy: "auto_compress",

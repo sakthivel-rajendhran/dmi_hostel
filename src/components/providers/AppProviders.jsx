@@ -9,11 +9,16 @@ import { Toaster } from "sonner";
 import { DevPanel } from "@/components/common/DevPanel.jsx";
 import { OfflineBanner } from "@/components/common/OfflineBanner.jsx";
 import { IdleTimeoutProvider } from "@/components/common/IdleTimeoutProvider.jsx";
+import { purgeAllBrowserStorage } from "@/lib/mock/index.js";
 
 const CACHE_STORAGE_KEY = "dmi_rq_persisted_cache";
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export function AppProviders({ children }) {
+  // Purge all mock browser storage on initial app launch
+  useEffect(() => {
+    purgeAllBrowserStorage();
+  }, []);
   const [queryClient] = useState(
     () =>
       new QueryClient({

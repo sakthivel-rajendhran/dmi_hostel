@@ -45,20 +45,7 @@ async function main() {
 
     console.log(`\n[4/5] Seeding foundational records...`);
 
-    // 1. Seed Rooms
-    if (Array.isArray(MOCK_ROOMS) && MOCK_ROOMS.length > 0) {
-      for (const r of MOCK_ROOMS) {
-        await connection.query(
-          `INSERT INTO rooms (room_number, floor, capacity, occupied, status)
-           VALUES (?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE capacity = VALUES(capacity), occupied = VALUES(occupied), status = VALUES(status);`,
-          [r.roomNumber || r.id, r.floor || "GF", r.capacity || 4, r.occupied || 0, r.status || "available"]
-        );
-      }
-      console.log(`  ✓ Seeded ${MOCK_ROOMS.length} rooms.`);
-    }
-
-    // 2. Seed Users
+    // 1. Seed Users
     if (Array.isArray(MOCK_USERS) && MOCK_USERS.length > 0) {
       for (const u of MOCK_USERS) {
         const email = u.email || u.gmail || `${u.studentId || u.id}@dmi.edu`;
@@ -99,8 +86,25 @@ async function main() {
 
     // 3. Seed Students
     if (Array.isArray(MOCK_STUDENTS) && MOCK_STUDENTS.length > 0) {
+      // Track used emails to handle duplicates in mock data
+      const usedEmails = new Set();
+      // Pre-populate with emails already used by MOCK_USERS
+      for (const u of MOCK_USERS) {
+        usedEmails.add((u.email || u.gmail || "").toLowerCase());
+      }
+
       for (const s of MOCK_STUDENTS) {
-        const studentEmail = s.email || `${s.studentId}@dmi.edu`;
+        let studentEmail = (s.email || `${s.studentId}@dmi.edu`).toLowerCase();
+        // If email is already taken by another record, generate a unique one from the student ID
+        if (usedEmails.has(studentEmail) && !studentEmail.startsWith(s.id.toLowerCase())) {
+          studentEmail = `${s.id.toLowerCase().replace(/[^a-z0-9]/g, ".")}@dmi.edu`;
+        }
+        usedEmails.add(studentEmail);
+
+        // Sanitize batch field (may contain en-dash or corrupt data)
+        const rawBatch = (s.batch || "2023-2027").toString().replace(/\s*[–—-]\s*/g, "-").trim();
+        const batch = /^\d{4}-\d{4}$/.test(rawBatch) ? rawBatch : "2023-2027";
+
         // Ensure user record exists first
         await connection.query(
           `INSERT INTO users (id, email, password, role, name, phone, avatar_url, status)
@@ -116,18 +120,18 @@ async function main() {
           [
             s.id,
             s.studentId,
-            s.regNo || `REG-${s.studentId}`,
+            s.regNo || s.regNumber || `REG-${s.studentId}`,
             s.name,
-            s.department || "CSE",
+            s.department || s.dept || "CSE",
             s.programme || "B.E.",
             s.year || 3,
-            s.batch || "2023-2027",
+            batch,
             s.floor || "GF",
-            s.roomNo || null,
-            Boolean(s.roomVerified),
+            s.roomNo || s.roomNumber || s.room || null,
+            Boolean(s.roomVerified || s.hostelVerification === "verified"),
             s.guardianName || null,
             s.guardianPhone || null,
-            Boolean(s.profileCompleted),
+            Boolean(s.profileCompleted || s.profileComplete),
           ]
         );
       }

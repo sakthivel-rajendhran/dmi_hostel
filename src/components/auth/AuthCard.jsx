@@ -20,19 +20,20 @@ export function AuthCard({
 }) {
   return (
     <motion.div
+      suppressHydrationWarning
       initial={{ opacity: 0, scale: 0.98, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
       style={{
-        padding: "clamp(16px, 2.4vh, 32px) clamp(20px, 2.4vw, 36px)",
+        padding: "clamp(18px, 2.5vh, 28px) clamp(20px, 2.4vw, 36px)",
       }}
       className={cn(
         "relative w-full max-w-[490px] mx-auto rounded-[32px]",
-        "h-[clamp(580px,82vh,700px)]",
-        "bg-white/88 dark:bg-[#090F2C]/90 backdrop-blur-2xl",
+        "h-auto",
+        "bg-white/90 dark:bg-[#090F2C]/92 backdrop-blur-2xl",
         "border border-white/75 dark:border-white/12",
         "shadow-[0_25px_60px_rgba(5,10,50,0.28)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.7)]",
-        "select-none transition-all duration-300 flex flex-col overflow-hidden",
+        "select-none transition-all duration-300 flex flex-col",
         className
       )}
     >
@@ -41,9 +42,10 @@ export function AuthCard({
         <div className="flex items-center justify-center gap-3 -mt-1 mb-[clamp(4px,0.8vh,10px)] flex-shrink-0">
           <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300/80 dark:via-slate-700 to-transparent" />
           <div
+            suppressHydrationWarning
             style={{
-              width: "clamp(60px, 9vh, 84px)",
-              height: "clamp(60px, 9vh, 84px)",
+              width: "clamp(56px, 8vh, 76px)",
+              height: "clamp(56px, 8vh, 76px)",
             }}
             className="rounded-full bg-white dark:bg-[#070D28] border-2 border-white/90 dark:border-white/20 shadow-xl flex items-center justify-center p-1 relative flex-shrink-0 overflow-hidden"
           >
@@ -67,8 +69,9 @@ export function AuthCard({
         <div className="text-center flex-shrink-0 mb-[clamp(6px,1.2vh,12px)]">
           {title && (
             <h2
+              suppressHydrationWarning
               style={{
-                fontSize: "clamp(1.3rem, 3vh, 1.85rem)",
+                fontSize: "clamp(1.25rem, 2.6vh, 1.7rem)",
                 lineHeight: 1.15,
               }}
               className="font-extrabold text-[#111936] dark:text-white tracking-tight"
@@ -78,8 +81,9 @@ export function AuthCard({
           )}
           {subtitle && (
             <p
+              suppressHydrationWarning
               style={{
-                fontSize: "clamp(0.78rem, 1.7vh, 0.95rem)",
+                fontSize: "clamp(0.75rem, 1.5vh, 0.9rem)",
               }}
               className="text-[#5B6485] dark:text-slate-300 mt-0.5 font-normal"
             >
@@ -90,10 +94,10 @@ export function AuthCard({
       )}
 
       {/* Header Action slot (e.g. Stepper or Role Tabs) */}
-      {headerAction && <div className="flex-shrink-0 mb-3">{headerAction}</div>}
+      {headerAction && <div className="flex-shrink-0 mb-2.5">{headerAction}</div>}
 
-      {/* Scrollable Body with Internal Thin Scrollbar and subtle bottom shadow fade */}
-      <div className={cn("flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 thin-scrollbar relative", bodyClassName)}>
+      {/* Static Body - Completely scrollbar-free */}
+      <div className={cn("relative w-full flex flex-col", bodyClassName)}>
         {children}
       </div>
     </motion.div>

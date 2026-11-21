@@ -96,7 +96,7 @@ export default function WardenDashboardPage() {
         />
         <StatCard
           title="Total Residents"
-          value={students.length || 40}
+          value={students.length}
           subtitle="Enrolled hostellers"
           icon={Users}
           variant="success"

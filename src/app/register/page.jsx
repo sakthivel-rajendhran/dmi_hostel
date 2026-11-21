@@ -38,6 +38,7 @@ import {
 import {
   validateRoomMatchesFloor,
   computeBatch,
+  getFloorForRoom,
   step1Schema,
   getStep2Schema,
   step3Schema,
@@ -48,7 +49,7 @@ const DRAFT_STORAGE_KEY = "dmi_signup_draft_v2";
 
 const STEPS = [
   { key: "account", label: "Account", shortLabel: "Account" },
-  { key: "academic", label: "Academic & Hostel", shortLabel: "Academic" },
+  { key: "academic", label: "Academic & Guardian", shortLabel: "Guardian" },
   { key: "photo", label: "Photo", shortLabel: "Photo" },
   { key: "review", label: "Review", shortLabel: "Review" },
 ];
@@ -57,7 +58,7 @@ export default function RegisterWizardPage() {
   const router = useRouter();
   const { policy } = usePolicy();
 
-  // Wizard state: 0 = Account, 1 = Academic & Hostel, 2 = Photo, 3 = Review, 4 = Success
+  // Wizard state: 0 = Account, 1 = Academic & Guardian, 2 = Photo, 3 = Review, 4 = Success
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionSuccess, setSubmissionSuccess] = useState(null); // Result object
@@ -74,11 +75,12 @@ export default function RegisterWizardPage() {
     dept: "CSE",
     year: 1,
     phone: "",
-    // Step 2: Academic & Hostel
+    // Step 2: Academic & Guardian
     regNo: "",
-    programme: "B.E.",
-    section: "A",
-    floor: "GF",
+    guardianName: "",
+    guardianRelation: "Father",
+    guardianPhone: "",
+    floor: null,
     roomNo: "",
     // Step 3: Photo
     photoDataUrl: null,
@@ -88,10 +90,6 @@ export default function RegisterWizardPage() {
   // Dynamic preview Student ID
   const [previewId, setPreviewId] = useState("CSE-1-001");
 
-  // Room verification state
-  const [roomChecking, setRoomChecking] = useState(false);
-  const [roomError, setRoomError] = useState(null);
-
   // 1. Restore draft on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -99,6 +97,9 @@ export default function RegisterWizardPage() {
       const saved = sessionStorage.getItem(DRAFT_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        if (parsed.photoDataUrl && typeof parsed.photoDataUrl === "object") {
+          parsed.photoDataUrl = parsed.photoDataUrl.dataUrl || parsed.photoDataUrl.url || null;
+        }
         setFormData((prev) => ({ ...prev, ...parsed }));
         toast.info("Restored registration draft", { duration: 2500 });
       }
@@ -172,6 +173,7 @@ export default function RegisterWizardPage() {
     const res = step1Schema.safeParse({
       name: formData.name,
       email: formData.email,
+      roomNo: formData.roomNo,
       dept: formData.dept,
       year: formData.year,
       phone: formData.phone,
@@ -192,15 +194,14 @@ export default function RegisterWizardPage() {
   // Step 2 Validation
   const validateStep2 = async () => {
     setErrors({});
-    setRoomError(null);
 
-    const schema = getStep2Schema(policy.roomAllocationMode);
+    const schema = getStep2Schema();
     const res = schema.safeParse({
       regNo: formData.regNo,
-      programme: formData.programme,
-      section: formData.section,
-      floor: formData.floor,
-      roomNo: formData.roomNo,
+      guardianName: formData.guardianName,
+      guardianRelation: formData.guardianRelation,
+      guardianPhone: formData.guardianPhone,
+      phone: formData.phone,
     });
 
     if (!res.success) {
@@ -210,30 +211,22 @@ export default function RegisterWizardPage() {
         if (!fieldErrors[key]) fieldErrors[key] = issue.message;
       });
       setErrors(fieldErrors);
+      const firstMsg = Object.values(fieldErrors)[0];
+      if (firstMsg) toast.error(firstMsg);
       return false;
     }
 
     // Check RegNo uniqueness
-    const regCheck = await checkRegNoAvailable({ regNo: formData.regNo });
-    if (!regCheck.available) {
-      setErrors((prev) => ({ ...prev, regNo: regCheck.message || "Register Number already registered" }));
-      return false;
-    }
-
-    // In student_enters mode, check room capacity
-    if (policy.roomAllocationMode === "student_enters") {
-      setRoomChecking(true);
-      const roomCheck = await checkRoomAvailability({
-        floor: formData.floor,
-        roomNo: formData.roomNo.trim().toUpperCase(),
-      });
-      setRoomChecking(false);
-
-      if (!roomCheck.available) {
-        setRoomError(roomCheck.message || "Room is full");
-        setErrors((prev) => ({ ...prev, roomNo: roomCheck.message || "Room is full" }));
+    try {
+      const regCheck = await checkRegNoAvailable({ regNo: formData.regNo });
+      if (!regCheck.available) {
+        const msg = regCheck.message || "Register Number already registered";
+        setErrors((prev) => ({ ...prev, regNo: msg }));
+        toast.error(msg);
         return false;
       }
+    } catch (e) {
+      console.warn("Could not check regNo availability:", e);
     }
 
     return true;
@@ -242,26 +235,42 @@ export default function RegisterWizardPage() {
   // Step 3 Validation
   const validateStep3 = () => {
     setErrors({});
+    const rawPhoto = formData.photoDataUrl;
+    const cleanPhoto = typeof rawPhoto === "string" ? rawPhoto : (rawPhoto?.dataUrl || null);
+
     const res = step3Schema.safeParse({
-      photoDataUrl: formData.photoDataUrl,
+      photoDataUrl: cleanPhoto,
     });
 
     if (!res.success) {
-      const msg = res.error.issues[0]?.message || "Profile photo is required.";
+      let msg = res.error.issues[0]?.message || "Profile photo is required.";
+      if (msg.includes("expected string")) {
+        msg = "Profile photo is required. Please choose or capture a photo.";
+      }
       setErrors({ photoDataUrl: msg });
+      toast.error(msg);
       return false;
     }
     return true;
   };
 
   const handleNext = async () => {
-    if (currentStep === 0) {
-      if (validateStep1()) setCurrentStep(1);
-    } else if (currentStep === 1) {
-      const valid = await validateStep2();
-      if (valid) setCurrentStep(2);
-    } else if (currentStep === 2) {
-      if (validateStep3()) setCurrentStep(3);
+    try {
+      if (currentStep === 0) {
+        if (validateStep1()) {
+          setCurrentStep(1);
+        } else {
+          toast.error("Please fill in your personal details correctly.");
+        }
+      } else if (currentStep === 1) {
+        const valid = await validateStep2();
+        if (valid) setCurrentStep(2);
+      } else if (currentStep === 2) {
+        if (validateStep3()) setCurrentStep(3);
+      }
+    } catch (err) {
+      console.error("handleNext error:", err);
+      toast.error(err.message || "Could not proceed to next step");
     }
   };
 
@@ -286,13 +295,11 @@ export default function RegisterWizardPage() {
         year: Number(formData.year),
         phone: formData.phone.trim(),
         regNo: formData.regNo.trim().toUpperCase(),
-        programme: formData.programme,
-        section: formData.section,
-        floor: policy.roomAllocationMode === "student_enters" ? formData.floor : null,
-        roomNo:
-          policy.roomAllocationMode === "student_enters"
-            ? formData.roomNo.trim().toUpperCase()
-            : null,
+        guardianName: (formData.guardianName || "").trim(),
+        guardianRelation: formData.guardianRelation || "Father",
+        guardianPhone: (formData.guardianPhone || "").trim(),
+        floor: getFloorForRoom(formData.roomNo || "") || null,
+        roomNo: (formData.roomNo || "").trim().toUpperCase() || null,
         photoDataUrl: formData.photoDataUrl,
       };
 
@@ -310,9 +317,6 @@ export default function RegisterWizardPage() {
         } else if (res.code === "REGNO_EXISTS") {
           setCurrentStep(1);
           setErrors({ regNo: res.message });
-        } else if (res.code === "ROOM_FULL") {
-          setCurrentStep(1);
-          setErrors({ roomNo: res.message });
         }
       }
     } catch (err) {
@@ -328,7 +332,7 @@ export default function RegisterWizardPage() {
       case 0:
         return "Create Resident Account";
       case 1:
-        return "Academic & Hostel Details";
+        return "Academic & Guardian Details";
       case 2:
         return "Upload Resident Photo";
       case 3:
@@ -343,17 +347,13 @@ export default function RegisterWizardPage() {
   const getStepSubtitle = () => {
     switch (currentStep) {
       case 0:
-        return "Step 1 of 3: Enter your personal and academic credentials";
+        return "Step 1 of 4: Enter your personal and academic credentials";
       case 1:
-        return policy.roomAllocationMode === "student_enters"
-          ? "Step 2 of 3: Provide registration number and choose your room"
-          : "Step 2 of 3: Provide academic info (Room is allocated by Warden)";
+        return "Step 2 of 4: Enter your register number & guardian details";
       case 2:
-        return `Step 3 of 3: ${
-          policy.photoPolicy === "reject" ? "Strict ≤1 MB limit enforced" : "Up to 15 MB (auto-compressed)"
-        }`;
+        return "Step 3 of 4: JPG, PNG, WebP • Maximum 15 MB • Minimum 200 × 200 px";
       case 3:
-        return "Verify your details before generating your Student ID";
+        return "Step 4 of 4: Verify your details before generating your Student ID";
       case 4:
         return "Your credentials are generated. Use your Student ID to log in.";
       default:
@@ -362,7 +362,7 @@ export default function RegisterWizardPage() {
   };
 
   return (
-    <div className="relative min-h-dvh lg:h-dvh lg:overflow-hidden w-full overflow-x-hidden flex flex-col lg:grid lg:grid-rows-[auto_minmax(0,1fr)]">
+    <div className="relative min-h-dvh w-full overflow-x-hidden flex flex-col">
       {/* 1. Vintage Vignette Background Scene */}
       <BackgroundScene />
 
@@ -402,14 +402,15 @@ export default function RegisterWizardPage() {
         </div>
       </header>
 
-      {/* 3. Main Center Region: Centers fixed AuthCard strictly */}
+      {/* 3. Main Center Region: Centers static AuthCard */}
       <main
         style={{
-          paddingLeft: "clamp(20px, 3.5vw, 64px)",
-          paddingRight: "clamp(20px, 3.5vw, 64px)",
-          paddingBottom: "clamp(12px, 2vh, 24px)",
+          paddingLeft: "clamp(16px, 3vw, 48px)",
+          paddingRight: "clamp(16px, 3vw, 48px)",
+          paddingBottom: "clamp(16px, 3vh, 32px)",
+          paddingTop: "clamp(8px, 1.5vh, 20px)",
         }}
-        className="relative z-20 min-h-0 w-full max-w-[1540px] mx-auto flex items-center justify-center flex-1"
+        className="relative z-20 w-full max-w-[1540px] mx-auto flex items-center justify-center flex-1"
       >
         <AuthCard
           title={getStepTitle()}
@@ -428,7 +429,7 @@ export default function RegisterWizardPage() {
           }
         >
           {/* Container holding all wizard step panels in a single grid cell */}
-          <div className="relative w-full h-full min-h-0 flex flex-col justify-between">
+          <div className="relative w-full flex flex-col justify-between">
             {/* ----------------- STEP 1: ACCOUNT ----------------- */}
             {currentStep === 0 && (
               <motion.div
@@ -467,6 +468,22 @@ export default function RegisterWizardPage() {
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   {errors.email && <p className="text-[11px] text-rose-500 mt-1">{errors.email}</p>}
+                </div>
+
+                {/* Room Number (Below Email) */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                    Room Number <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.roomNo || ""}
+                    onChange={(e) => handleChange("roomNo", e.target.value.toUpperCase())}
+                    placeholder="e.g. 101, 204, 304, or G05"
+                    maxLength={10}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-semibold uppercase text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {errors.roomNo && <p className="text-[11px] text-rose-500 mt-1">{errors.roomNo}</p>}
                 </div>
 
                 {/* Phone Number */}
@@ -563,7 +580,7 @@ export default function RegisterWizardPage() {
                   onClick={handleNext}
                   className="w-full mt-2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md hover:shadow-indigo-500/20 transition-all duration-200"
                 >
-                  <span>Next: Academic & Hostel</span>
+                  <span>Next: Academic & Guardian</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
@@ -607,155 +624,86 @@ export default function RegisterWizardPage() {
                     />
                     {errors.regNo && <p className="text-[11px] text-rose-500 mt-1">{errors.regNo}</p>}
                   </div>
-
-                  {/* Programme, Section, Batch */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
-                        Degree
-                      </label>
-                      <select
-                        value={formData.programme}
-                        onChange={(e) => handleChange("programme", e.target.value)}
-                        className="w-full px-2 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
-                      >
-                        {(WORKFLOW_CONFIG.programmes || ["B.E.", "B.Tech", "M.E.", "MBA", "MCA"]).map(
-                          (p) => (
-                            <option key={p} value={p}>
-                              {p}
-                            </option>
-                          )
-                        )}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
-                        Section
-                      </label>
-                      <select
-                        value={formData.section}
-                        onChange={(e) => handleChange("section", e.target.value)}
-                        className="w-full px-2 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
-                      >
-                        {["A", "B", "C", "D"].map((s) => (
-                          <option key={s} value={s}>
-                            Section {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
-                        Batch
-                      </label>
-                      <div className="w-full px-2 py-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-[11px] font-mono font-bold text-slate-600 dark:text-slate-300 text-center truncate">
-                        {computeBatch(formData.year, 4)}
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
-                {/* Hostel Allocation Section (Switchable by policy) */}
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center justify-between mb-2">
+                {/* Guardian Details Section */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                      2. Hostel Allocation
+                      2. Guardian Details
                     </span>
                     <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                      {policy.roomAllocationMode === "student_enters"
-                        ? "Resident Choice"
-                        : "Warden Managed"}
+                      Outpass & Emergency Contact
                     </span>
                   </div>
 
-                  {policy.roomAllocationMode === "student_enters" ? (
-                    <div className="space-y-2.5">
-                      {/* Floor Selection */}
-                      <div>
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
-                          Select Floor <span className="text-rose-500">*</span>
-                        </label>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {WORKFLOW_CONFIG.floors.map((fl) => {
-                            const isSelected = formData.floor === fl.id;
-                            return (
-                              <button
-                                key={fl.id}
-                                type="button"
-                                onClick={() => handleChange("floor", fl.id)}
-                                className={`py-1.5 px-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-between ${
-                                  isSelected
-                                    ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                                    : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100"
-                                }`}
-                              >
-                                <span>{fl.label}</span>
-                                <span
-                                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
-                                    isSelected
-                                      ? "bg-white/20 text-white"
-                                      : "bg-slate-200 dark:bg-slate-800 text-slate-500"
-                                  }`}
-                                >
-                                  {fl.roomPrefix}__
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                  {/* Guardian Name */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                      Parent / Guardian Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.guardianName}
+                      onChange={(e) => handleChange("guardianName", e.target.value)}
+                      placeholder="e.g. David Kumar"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {errors.guardianName && (
+                      <p className="text-[11px] text-rose-500 mt-1">{errors.guardianName}</p>
+                    )}
+                  </div>
 
-                      {/* Room Number Input */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                            Room Number <span className="text-rose-500">*</span>
-                          </label>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {formData.floor === "GF" ? "G01 – G30" : `${formData.floor === "F2" ? "201–230" : formData.floor === "F3" ? "301–330" : "401–430"}`}
-                          </span>
-                        </div>
-                        <input
-                          type="text"
-                          value={formData.roomNo}
-                          onChange={(e) => handleChange("roomNo", e.target.value.toUpperCase())}
-                          onBlur={() => {
-                            if (formData.roomNo && formData.floor) {
-                              const check = validateRoomMatchesFloor(formData.floor, formData.roomNo);
-                              if (!check.valid) {
-                                setErrors((prev) => ({ ...prev, roomNo: check.error }));
-                              }
-                            }
-                          }}
-                          placeholder={formData.floor === "GF" ? "e.g. G04" : `${formData.floor.slice(1)}04`}
-                          maxLength={4}
-                          className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                        {errors.roomNo && (
-                          <p className="text-[11px] text-rose-500 mt-1">{errors.roomNo}</p>
-                        )}
-                        {roomChecking && (
-                          <p className="text-[10px] text-indigo-500 mt-1 flex items-center gap-1">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Verifying room capacity...
-                          </p>
-                        )}
-                      </div>
+                  {/* Relationship and Guardian Mobile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                        Relationship <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={formData.guardianRelation}
+                        onChange={(e) => handleChange("guardianRelation", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="Father">Father</option>
+                        <option value="Mother">Mother</option>
+                        <option value="Guardian">Guardian</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      {errors.guardianRelation && (
+                        <p className="text-[11px] text-rose-500 mt-1">{errors.guardianRelation}</p>
+                      )}
                     </div>
-                  ) : (
-                    /* warden_allocates mode */
-                    <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5">
-                      <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                      <div className="text-xs text-amber-800 dark:text-amber-300">
-                        <strong className="block font-bold">Warden Allocation Active</strong>
-                        <span>
-                          Hostel rooms are assigned centrally by the Chief Warden. You will be
-                          notified once your room is verified and allocated.
-                        </span>
-                      </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                        Guardian Mobile <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={formData.guardianPhone}
+                        onChange={(e) =>
+                          handleChange(
+                            "guardianPhone",
+                            e.target.value.replace(/\D/g, "").slice(0, 10)
+                          )
+                        }
+                        placeholder="10-digit number"
+                        maxLength={10}
+                        className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      {errors.guardianPhone && (
+                        <p className="text-[11px] text-rose-500 mt-1">{errors.guardianPhone}</p>
+                      )}
                     </div>
-                  )}
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-800/60 flex items-start gap-2">
+                    <Info className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0 mt-0.5" />
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Hostel room will be allocated centrally by the Chief Warden upon check-in.
+                    </span>
+                  </div>
                 </div>
 
                 {/* Step 2 Actions */}
@@ -791,11 +739,12 @@ export default function RegisterWizardPage() {
                 className="space-y-3 pb-2"
               >
                 <PhotoPicker
-                  value={formData.photoDataUrl}
+                  value={typeof formData.photoDataUrl === "string" ? formData.photoDataUrl : formData.photoDataUrl?.dataUrl}
                   onChange={(dataUrl, meta) => {
+                    const stringDataUrl = typeof dataUrl === "string" ? dataUrl : (dataUrl?.dataUrl || null);
                     setFormData((prev) => ({
                       ...prev,
-                      photoDataUrl: dataUrl,
+                      photoDataUrl: stringDataUrl,
                       photoMeta: meta,
                     }));
                     if (errors.photoDataUrl) {
@@ -817,11 +766,7 @@ export default function RegisterWizardPage() {
                   <ul className="list-disc pl-4 space-y-0.5">
                     <li>Clear frontal headshot with face visible</li>
                     <li>Square aspect ratio (automatically adjusted)</li>
-                    <li>
-                      {policy.photoPolicy === "reject"
-                        ? "File must not exceed 1 MB"
-                        : "Up to 15 MB accepted; compressed under 1 MB"}
-                    </li>
+                    <li>JPG, PNG, WebP • Maximum 15 MB • Minimum 200 × 200 px</li>
                   </ul>
                 </div>
 
@@ -869,7 +814,7 @@ export default function RegisterWizardPage() {
                           {formData.name}
                         </span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                          {formData.email} • {formData.phone}
+                          {formData.email} • Room {formData.roomNo || "N/A"} • {formData.phone}
                         </span>
                       </div>
                     </div>
@@ -882,7 +827,7 @@ export default function RegisterWizardPage() {
                     </button>
                   </div>
 
-                  {/* Academic & Hostel Summary */}
+                  {/* Academic & Guardian Summary */}
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950 flex items-center justify-center text-purple-600">
@@ -890,13 +835,10 @@ export default function RegisterWizardPage() {
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                          {formData.dept} • Year {formData.year} • Sec {formData.section}
+                          {formData.dept} • Year {formData.year} • Reg: {formData.regNo}
                         </span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-mono">
-                          Reg: {formData.regNo} •{" "}
-                          {policy.roomAllocationMode === "student_enters"
-                            ? `${formData.floor === "GF" ? "Ground Floor" : formData.floor === "F2" ? "2nd Floor" : formData.floor === "F3" ? "3rd Floor" : "4th Floor"}, Room ${formData.roomNo}`
-                            : "Room: Awaiting Warden Allocation"}
+                          Guardian: {formData.guardianName} ({formData.guardianRelation}) • {formData.guardianPhone}
                         </span>
                       </div>
                     </div>
@@ -931,8 +873,8 @@ export default function RegisterWizardPage() {
                           Resident Photo
                         </span>
                         <span className="text-[11px] text-emerald-600 dark:text-emerald-400 block">
-                          {formData.photoMeta
-                            ? `Compressed to ${formData.photoMeta.finalFormatted}`
+                          {formData.photoMeta?.formattedSize
+                            ? `Photo Size: ${formData.photoMeta.formattedSize}`
                             : "Photo ready"}
                         </span>
                       </div>
@@ -1050,11 +992,10 @@ export default function RegisterWizardPage() {
                   <div className="flex items-center justify-between pt-1 text-xs">
                     <span className="text-slate-500">Allocation Status:</span>
                     <span
-                      className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${
-                        submissionSuccess.mode === "student_enters"
-                          ? "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300"
-                          : "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300"
-                      }`}
+                      className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${submissionSuccess.mode === "student_enters"
+                        ? "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300"
+                        : "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300"
+                        }`}
                     >
                       {submissionSuccess.mode === "student_enters"
                         ? "Pending Warden Verification"

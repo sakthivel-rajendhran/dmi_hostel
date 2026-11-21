@@ -18,8 +18,10 @@ export default function WardenStudentsPage() {
     const matchSearch =
       (s.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
       (s.studentId?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (s.roomNumber?.toLowerCase() || "").includes(searchTerm.toLowerCase());
-    const matchDept = selectedDept === "all" || s.dept === selectedDept;
+      (s.roomNumber?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (s.room?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (s.roomNo?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+    const matchDept = selectedDept === "all" || s.dept === selectedDept || s.department === selectedDept;
     return matchSearch && matchDept;
   });
 

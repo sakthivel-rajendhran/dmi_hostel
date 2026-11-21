@@ -1,5 +1,6 @@
 /**
- * DMI College Hostel Management PWA - Unified Mock Data Layer
+ * DMI College Hostel Management - Unified Storage Layer
+ * Real student and outpass records are permanently managed in MySQL.
  */
 
 import { MOCK_USERS } from "./users.js";
@@ -31,63 +32,110 @@ const STORAGE_KEYS = {
   LATENCY: "dmi_mock_latency_enabled",
 };
 
+const ALL_MOCK_KEYS = [
+  "dmi_mock_users_v2",
+  "dmi_mock_students_v2",
+  "dmi_mock_passes_v3",
+  "dmi_mock_logs_v2",
+  "dmi_mock_notifs_v2",
+  "dmi_mock_rooms_v2",
+  "dmi_mock_letters_v2",
+  "dmi_mock_latency_enabled",
+  "dmi_students_v1",
+  "dmi_users_v1",
+  "dmi_passes_v1",
+  "dmi_letters_v1",
+  "dmi_notifs_v1",
+  "dmi_logs_v1",
+  "dmi_rooms_v1",
+  "dmi_signup_draft_v2",
+  "dmi_signup_draft_v1",
+  "dmi_rq_persisted_cache",
+];
+
 const memoryStore = new Map();
 
 /**
- * Resets all localStorage mock datasets back to deterministic seed state
+ * Purges all mock data from browser localStorage and sessionStorage
  */
-export function resetMockData() {
+export function purgeAllBrowserStorage() {
   if (typeof window === "undefined") {
     memoryStore.clear();
     return;
   }
   try {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(MOCK_USERS));
-    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(MOCK_STUDENTS));
-    localStorage.setItem(STORAGE_KEYS.PASSES, JSON.stringify(MOCK_PASSES));
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(MOCK_SECURITY_LOGS));
-    localStorage.setItem(STORAGE_KEYS.NOTIFS, JSON.stringify(MOCK_NOTIFICATIONS));
-    localStorage.setItem(STORAGE_KEYS.ROOMS, JSON.stringify(MOCK_ROOMS));
-    localStorage.setItem(STORAGE_KEYS.LETTERS, JSON.stringify(MOCK_LETTERS));
-    console.log("[Mock Store] Mock data reset to deterministic factory state.");
+    ALL_MOCK_KEYS.forEach((k) => {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    });
+
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key.startsWith("dmi_mock_") ||
+          key.startsWith("dmi_students_") ||
+          key.startsWith("dmi_users_") ||
+          key.startsWith("dmi_passes_"))
+      ) {
+        localStorage.removeItem(key);
+      }
+    }
+
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (
+        key &&
+        (key.startsWith("dmi_mock_") ||
+          key.startsWith("dmi_signup_draft") ||
+          key.startsWith("dmi_"))
+      ) {
+        sessionStorage.removeItem(key);
+      }
+    }
+
+    console.log("[Storage Cleaner] Successfully wiped all mock data from browser storage.");
   } catch (e) {
-    console.error("Failed to reset mock data", e);
+    console.error("Failed to purge browser storage:", e);
   }
 }
 
 /**
- * Get data with local storage persistence fallback
+ * Reset mock data - now clears all mock datasets from browser storage completely
+ */
+export function resetMockData() {
+  purgeAllBrowserStorage();
+}
+
+/**
+ * Get data with local storage persistence fallback.
+ * Will NOT write mock objects into localStorage.
  */
 export function getPersistentMock(key, factoryDefault) {
   if (typeof window === "undefined") {
     if (memoryStore.has(key)) return memoryStore.get(key);
-    return factoryDefault;
+    return factoryDefault || [];
   }
   try {
     const raw = localStorage.getItem(key);
     if (!raw) {
-      localStorage.setItem(key, JSON.stringify(factoryDefault));
-      return factoryDefault;
+      return factoryDefault || [];
     }
     return JSON.parse(raw);
   } catch (e) {
-    return factoryDefault;
+    return factoryDefault || [];
   }
 }
 
 /**
- * Save data to local storage
+ * Save data to memory/storage.
  */
 export function setPersistentMock(key, data) {
   if (typeof window === "undefined") {
     memoryStore.set(key, data);
     return;
   }
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.error("Failed to persist mock data", e);
-  }
+  // No longer write mock collections to localStorage
 }
 
 export { STORAGE_KEYS };

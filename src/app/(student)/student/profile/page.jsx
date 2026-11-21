@@ -177,17 +177,21 @@ export default function StudentProfilePage() {
   // Form Submit Handler
   const onSubmit = async (data) => {
     try {
-      const flConfig = WORKFLOW_CONFIG.floors.find((f) => f.id === data.floor);
-      const floorLabel = flConfig ? flConfig.label : data.floor;
+      const flConfig = data.floor ? WORKFLOW_CONFIG.floors.find((f) => f.id === data.floor) : null;
+      const floorLabel = flConfig ? flConfig.label : (data.floor || profile?.floorLabel || null);
+
+      const patch = {
+        ...data,
+      };
+      if (floorLabel) patch.floorLabel = floorLabel;
+      if (data.roomNumber) {
+        patch.room = data.roomNumber;
+        patch.roomNo = data.roomNumber;
+      }
 
       await updateMutation.mutateAsync({
         studentId,
-        patch: {
-          ...data,
-          floorLabel,
-          room: data.roomNumber,
-          roomNo: data.roomNumber,
-        },
+        patch,
       });
       toast.success("Profile records updated successfully!");
       reset(data);
