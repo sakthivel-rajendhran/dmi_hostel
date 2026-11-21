@@ -117,13 +117,6 @@ export async function validatePhotoFile(file) {
     };
   } catch (err) {
     return {
-      valid: true,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-      size: file.size,
-    };
-  } catch (err) {
-    return {
       valid: false,
       error: err.message || "This file could not be read as an image",
     };
