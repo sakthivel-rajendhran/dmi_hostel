@@ -433,7 +433,7 @@ export default function StudentApplyPage() {
               Complete Your Profile to Apply
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-sm mx-auto">
-              Hostel security regulations require all residents to furnish valid hostel room and guardian details before an outpass can be authorized.
+              Hostel security regulations require all residents to complete personal and guardian profile details before an outpass can be authorized.
             </p>
           </div>
 

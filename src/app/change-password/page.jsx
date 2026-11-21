@@ -5,15 +5,16 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Lock, KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Lock, KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { BackgroundScene } from "@/components/login/background-scene";
 import { Button } from "@/components/ui/Button.jsx";
-import { forceChangePasswordSchema } from "@/lib/validators.js";
+import { forceChangePasswordSchema, getPasswordStrength } from "@/lib/validators.js";
 import { useAuth } from "@/hooks/use-auth.js";
 import { authService } from "@/lib/services/authService.js";
 import { getHomeRoute } from "@/config/roles.js";
+import { cn } from "@/lib/utils/cn.js";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -38,13 +39,8 @@ export default function ChangePasswordPage() {
     },
   });
 
-  const newPassValue = watch("newPassword") || "";
-
-  const hasLength = newPassValue.length >= 8;
-  const hasUpper = /[A-Z]/.test(newPassValue);
-  const hasLower = /[a-z]/.test(newPassValue);
-  const hasNumber = /[0-9]/.test(newPassValue);
-  const hasSpecial = /[^A-Za-z0-9]/.test(newPassValue);
+  const newPasswordValue = watch("newPassword") || "";
+  const strength = getPasswordStrength(newPasswordValue);
 
   const onSubmit = async (data) => {
     setServerError(null);
@@ -204,6 +200,63 @@ export default function ChangePasswordPage() {
                   {errors.newPassword.message}
                 </p>
               )}
+
+              {/* Password Strength Bar Graph */}
+              {newPasswordValue.length > 0 && (
+                <div className="mt-2 space-y-1.5 transition-all duration-300">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500 dark:text-slate-400">Password strength:</span>
+                    <span
+                      className={cn(
+                        "font-bold text-xs capitalize",
+                        strength.label === "Weak" || strength.label.includes("Invalid")
+                          ? "text-rose-500"
+                          : strength.label === "Medium"
+                          ? "text-amber-500"
+                          : "text-emerald-500"
+                      )}
+                    >
+                      {strength.label}
+                    </span>
+                  </div>
+                  {/* Segmented Strength Bar Graph: Weak, Medium, Strong */}
+                  <div className="grid grid-cols-3 gap-1.5 h-1.5 w-full">
+                    {/* Level 1: Weak */}
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-300",
+                        strength.score > 0
+                          ? strength.label === "Weak" || strength.label.includes("Invalid")
+                            ? "bg-rose-500"
+                            : strength.label === "Medium"
+                            ? "bg-amber-500"
+                            : "bg-emerald-500"
+                          : "bg-slate-200 dark:bg-slate-700"
+                      )}
+                    />
+                    {/* Level 2: Medium */}
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-300",
+                        strength.score >= 40 && !strength.label.includes("Invalid")
+                          ? strength.label === "Medium"
+                            ? "bg-amber-500"
+                            : "bg-emerald-500"
+                          : "bg-slate-200 dark:bg-slate-700"
+                      )}
+                    />
+                    {/* Level 3: Strong */}
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-300",
+                        strength.score >= 70 && !strength.label.includes("Invalid")
+                          ? "bg-emerald-500"
+                          : "bg-slate-200 dark:bg-slate-700"
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Confirm Password */}
@@ -234,27 +287,6 @@ export default function ChangePasswordPage() {
                   {errors.confirmPassword.message}
                 </p>
               )}
-            </div>
-
-            {/* Password Requirement Checklist */}
-            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/80 dark:border-white/5 space-y-1.5 text-[11px]">
-              <p className="font-bold text-slate-600 dark:text-slate-300 mb-1">
-                Password Security Requirements:
-              </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                <span className={`flex items-center gap-1.5 ${hasLength ? "text-emerald-600 font-bold" : "text-slate-400"}`}>
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> At least 8 characters
-                </span>
-                <span className={`flex items-center gap-1.5 ${hasUpper ? "text-emerald-600 font-bold" : "text-slate-400"}`}>
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> One uppercase (A–Z)
-                </span>
-                <span className={`flex items-center gap-1.5 ${hasLower ? "text-emerald-600 font-bold" : "text-slate-400"}`}>
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> One lowercase (a–z)
-                </span>
-                <span className={`flex items-center gap-1.5 ${hasNumber ? "text-emerald-600 font-bold" : "text-slate-400"}`}>
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> One number (0–9)
-                </span>
-              </div>
             </div>
 
             <Button

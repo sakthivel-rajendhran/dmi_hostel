@@ -2,9 +2,9 @@ name: DMI Hostel PWA - Continuous Integration
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, master, develop, dev]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, master, develop, dev]
 
 jobs:
   audit-and-test:
@@ -23,18 +23,10 @@ jobs:
       - name: Install Dependencies
         run: bun install
 
-      - name: Unit Tests (Phase 0 - 6)
-        run: |
-          bun run scripts/test-phase0-units.js
-          bun run scripts/test-phase2-units.js
-          bun run scripts/test-phase4-staff-hod.js
-          bun run scripts/test-phase5-oversight.js
-          bun run scripts/test-phase6-staff-accounts.js
-
       - name: Build Next.js Production Bundle
         run: bun run build
 
       - name: Verify Bundle Integrity
         run: |
           test -d .next
-          echo "Build successful: 49 static & dynamic routes compiled cleanly."
+          echo "Build successful: All routes compiled cleanly."

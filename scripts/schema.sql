@@ -31,27 +31,19 @@ CREATE TABLE IF NOT EXISTS staff_profiles (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- 3. Building Rooms Table
-CREATE TABLE IF NOT EXISTS rooms (
-  room_number VARCHAR(10) PRIMARY KEY,
-  floor VARCHAR(10) NOT NULL,
-  capacity INT DEFAULT 4,
-  occupied INT DEFAULT 0,
-  status VARCHAR(20) DEFAULT 'available',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
-
--- 4. Students Table
+-- 3. Students Table
 CREATE TABLE IF NOT EXISTS students (
   id VARCHAR(64) PRIMARY KEY,
   student_id VARCHAR(30) UNIQUE NOT NULL,
   reg_no VARCHAR(30) UNIQUE NOT NULL,
   name VARCHAR(100) NOT NULL,
   department VARCHAR(20) NOT NULL,
-  programme VARCHAR(30) DEFAULT 'B.E.',
+  programme VARCHAR(30) NULL,
+  section VARCHAR(50) NULL,
   year INT NOT NULL,
-  batch VARCHAR(20) NOT NULL,
-  floor VARCHAR(10) NOT NULL,
+  batch VARCHAR(20) NULL,
+  phone VARCHAR(20) NULL,
+  floor VARCHAR(10) NULL,
   room_number VARCHAR(10) NULL,
   room_verified BOOLEAN DEFAULT FALSE,
   guardian_name VARCHAR(100),
@@ -61,10 +53,10 @@ CREATE TABLE IF NOT EXISTS students (
   blood_group VARCHAR(10),
   photo_url TEXT,
   profile_completed BOOLEAN DEFAULT FALSE,
+  allocation_status ENUM('waiting_for_warden', 'accepted', 'rejected') DEFAULT 'waiting_for_warden',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (room_number) REFERENCES rooms(room_number) ON DELETE SET NULL
+  FOREIGN KEY (id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- 5. Outpasses Table
@@ -142,3 +134,35 @@ CREATE TABLE IF NOT EXISTS letters (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+-- 10. Student Photos (Permanent Compressed BLOB Storage)
+CREATE TABLE IF NOT EXISTS student_photos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL UNIQUE,
+  user_id VARCHAR(64) NULL,
+  photo_data MEDIUMBLOB NOT NULL,
+  mime_type VARCHAR(50) NOT NULL DEFAULT 'image/jpeg',
+  file_name VARCHAR(255) NULL,
+  file_size INT NOT NULL,
+  width INT DEFAULT 400,
+  height INT DEFAULT 400,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_student_photos_student (student_id),
+  INDEX idx_student_photos_user (user_id)
+) ENGINE=InnoDB;
+
+-- 11. Student Allocation Decisions
+CREATE TABLE IF NOT EXISTS allocation_decisions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  warden_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  decision ENUM('accepted', 'rejected') NOT NULL,
+  rejection_reason TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  decided_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_alloc_student (student_id),
+  INDEX idx_alloc_warden (warden_id),
+  INDEX idx_alloc_decided_at (decided_at)
+) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
