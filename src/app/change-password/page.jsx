@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Lock, KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle } from "lucide-react";
+import { Lock, KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { BackgroundScene } from "@/components/login/background-scene";
@@ -13,17 +13,39 @@ import { Button } from "@/components/ui/Button.jsx";
 import { forceChangePasswordSchema, getPasswordStrength } from "@/lib/validators.js";
 import { useAuth } from "@/hooks/use-auth.js";
 import { authService } from "@/lib/services/authService.js";
-import { getHomeRoute } from "@/config/roles.js";
 import { cn } from "@/lib/utils/cn.js";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
-  const { user, refreshSession } = useAuth();
+  const { session, user, role, loading, refreshSession } = useAuth();
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [serverError, setServerError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Authentication & Guard Check
+  useEffect(() => {
+    if (loading) return;
+
+    if (!session || !user) {
+      router.replace("/");
+      return;
+    }
+
+    const accStatus = (user?.accountStatus || user?.account_status || "").toUpperCase();
+    if (role === "student" && accStatus && accStatus !== "APPROVED") {
+      toast.error("Your account is awaiting Warden approval.");
+      router.replace("/");
+      return;
+    }
+
+    // If user does not need to change password, redirect straight to dashboard
+    const mustChange = session?.mustChangePassword ?? user?.mustChangePassword;
+    if (mustChange === false) {
+      router.replace(role === "student" ? "/student/dashboard" : "/warden/dashboard");
+    }
+  }, [session, user, role, loading, router]);
 
   const {
     register,
@@ -47,19 +69,23 @@ export default function ChangePasswordPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await authService.changePassword(data.currentPassword, data.newPassword);
+      const res = await authService.changePassword(
+        data.currentPassword,
+        data.newPassword,
+        data.confirmPassword
+      );
+
       if (res.ok) {
-        toast.success("Password set successfully! Redirecting to your dashboard...");
+        toast.success("Password changed successfully! Welcome to DMI Hostel.");
         refreshSession();
         setTimeout(() => {
-          const dest = getHomeRoute(user?.role || "student");
-          router.push(dest);
-        }, 800);
+          router.push("/student/dashboard");
+        }, 600);
       } else {
-        setServerError(res.error || "Failed to update password. Please verify current credentials.");
+        setServerError(res.error || res.message || "Failed to update password. Please verify current credentials.");
       }
     } catch (err) {
-      setServerError("An unexpected error occurred. Please try again.");
+      setServerError("An unexpected connection error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -107,21 +133,21 @@ export default function ChangePasswordPage() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.45 }}
           style={{
-            padding: "clamp(16px, 2.4vh, 32px) clamp(20px, 2.4vw, 36px)",
+            padding: "clamp(20px, 3vh, 36px) clamp(20px, 2.8vw, 40px)",
           }}
-          className="relative w-full max-w-[490px] mx-auto rounded-[32px] bg-white/88 dark:bg-[#090F2C]/90 backdrop-blur-2xl border border-white/75 dark:border-white/12 shadow-[0_25px_60px_rgba(5,10,50,0.28)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.7)] select-none transition-all duration-300 flex flex-col"
+          className="relative w-full max-w-[490px] mx-auto rounded-[32px] bg-white/90 dark:bg-[#090F2C]/92 backdrop-blur-2xl border border-white/75 dark:border-white/12 shadow-[0_25px_60px_rgba(5,10,50,0.28)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.7)] select-none transition-all duration-300 flex flex-col"
         >
           {/* Header */}
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
               <ShieldCheck className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Set Permanent Password
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                Change Your Password
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                First login detected. Replace temporary credentials to proceed.
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mt-0.5">
+                First login detected. Your initial password must be changed before accessing the Student Portal.
               </p>
             </div>
           </div>
@@ -141,11 +167,11 @@ export default function ChangePasswordPage() {
             )}
           </AnimatePresence>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {/* Current Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Temporary / Current Password
+                Current Password
               </label>
               <div className="relative flex items-center">
                 <div className="absolute left-3.5 text-slate-400 pointer-events-none">
@@ -154,13 +180,14 @@ export default function ChangePasswordPage() {
                 <input
                   type={showCurrent ? "text" : "password"}
                   {...register("currentPassword")}
-                  placeholder="Enter temporary password"
-                  className="w-full h-11 pl-10 pr-10 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                  placeholder="Enter initial default password"
+                  autoComplete="current-password"
+                  className="w-full h-11 pl-10 pr-10 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-blue transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowCurrent(!showCurrent)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                 >
                   {showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -175,7 +202,7 @@ export default function ChangePasswordPage() {
             {/* New Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                New Permanent Password
+                New Password
               </label>
               <div className="relative flex items-center">
                 <div className="absolute left-3.5 text-slate-400 pointer-events-none">
@@ -185,12 +212,13 @@ export default function ChangePasswordPage() {
                   type={showNew ? "text" : "password"}
                   {...register("newPassword")}
                   placeholder="At least 8 characters"
-                  className="w-full h-11 pl-10 pr-10 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                  autoComplete="new-password"
+                  className="w-full h-11 pl-10 pr-10 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-blue transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                 >
                   {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -201,11 +229,11 @@ export default function ChangePasswordPage() {
                 </p>
               )}
 
-              {/* Password Strength Bar Graph */}
+              {/* Password Strength Meter */}
               {newPasswordValue.length > 0 && (
                 <div className="mt-2 space-y-1.5 transition-all duration-300">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500 dark:text-slate-400">Password strength:</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Password strength:</span>
                     <span
                       className={cn(
                         "font-bold text-xs capitalize",
@@ -219,7 +247,6 @@ export default function ChangePasswordPage() {
                       {strength.label}
                     </span>
                   </div>
-                  {/* Segmented Strength Bar Graph: Weak, Medium, Strong */}
                   <div className="grid grid-cols-3 gap-1.5 h-1.5 w-full">
                     {/* Level 1: Weak */}
                     <div
@@ -262,7 +289,7 @@ export default function ChangePasswordPage() {
             {/* Confirm Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Confirm New Password
+                Confirm Password
               </label>
               <div className="relative flex items-center">
                 <div className="absolute left-3.5 text-slate-400 pointer-events-none">
@@ -271,13 +298,14 @@ export default function ChangePasswordPage() {
                 <input
                   type={showConfirm ? "text" : "password"}
                   {...register("confirmPassword")}
-                  placeholder="Repeat permanent password"
-                  className="w-full h-11 pl-10 pr-10 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-blue"
+                  placeholder="Re-enter new password"
+                  autoComplete="new-password"
+                  className="w-full h-11 pl-10 pr-10 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-blue transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirm(!showConfirm)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                 >
                   {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -294,9 +322,9 @@ export default function ChangePasswordPage() {
               variant="primary"
               size="lg"
               isLoading={isSubmitting}
-              className="w-full mt-2 font-bold shadow-lg shadow-indigo-600/25"
+              className="w-full mt-2 font-bold shadow-lg shadow-indigo-600/25 h-12 rounded-2xl bg-gradient-to-r from-[#2438E8] via-[#2B2FE0] to-[#6D28D9] text-white hover:shadow-indigo-600/40"
             >
-              Update Password & Enter
+              Save Changes
             </Button>
           </form>
         </motion.div>

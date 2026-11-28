@@ -25,14 +25,8 @@ export default function WardenSettingsPage() {
   const [letterApprovalRequired, setLetterApprovalRequired] = useState(false);
   const [requiredHomeDays, setRequiredHomeDays] = useState(7);
 
-  // Audit list
-  const [auditLogs, setAuditLogs] = useState([
-    {
-      action: "System Initialized",
-      timestamp: "2026-11-19 08:30:00",
-      actor: "Chief Warden",
-    },
-  ]);
+  // Session audit list
+  const [auditLogs, setAuditLogs] = useState([]);
 
   useEffect(() => {
     if (policy) {
@@ -83,10 +77,7 @@ export default function WardenSettingsPage() {
   };
 
   const approverModeOptions = [
-    { value: "either", label: "Either Principal OR Correspondent" },
-    { value: "both", label: "Both Principal AND Correspondent (Dual Approval)" },
-    { value: "principal_only", label: "Principal Approval Exclusively" },
-    { value: "correspondent_only", label: "Correspondent Approval Exclusively" },
+    { value: "correspondent_only", label: "Correspondent Approval" },
   ];
 
   return (
@@ -151,7 +142,7 @@ export default function WardenSettingsPage() {
                 </h4>
               </div>
               <p className="text-xs text-text-muted dark:text-slate-400">
-                Enables students to submit special permission letters for Principal and Correspondent review. When disabled, all letter UI is removed from all roles.
+                Enables students to submit special permission letters for Correspondent review. When disabled, all letter UI is removed from all roles.
               </p>
             </div>
             <Switch checked={lettersEnabled} onChange={setLettersEnabled} />
@@ -198,7 +189,7 @@ export default function WardenSettingsPage() {
               <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 space-y-1">
                 <span className="font-bold block">Live Effect Preview:</span>
                 <p>
-                  • Module is <strong>ACTIVE</strong>. Letters navigation visible for Principal, Correspondent and Student.
+                  • Module is <strong>ACTIVE</strong>. Letters navigation visible for Correspondent and Student.
                 </p>
                 <p>
                   • Approver Mode: <strong>{approverModeOptions.find(o => o.value === approverMode)?.label}</strong>.

@@ -18,54 +18,48 @@ import { isLetterSatisfied } from "./letterService.js";
  * @param {object} [params]
  */
 export async function listPasses({ page = 1, pageSize = 20, studentId = "", status = "", type = "", search = "", sort = "newest" } = {}) {
-  await simulateLatency(150, 300);
-  // TODO(BACKEND): replace with Supabase call `supabase.from('passes').select('*', { count: 'exact' })...`
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+  // Query MySQL Outpass API when running in browser
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams();
+      if (studentId) params.set("studentId", studentId);
+      if (status && status !== "all") params.set("status", status);
+      if (type && type !== "all") params.set("type", type);
+      if (search) params.set("search", search);
 
-  let filtered = [...passes];
-
-  if (studentId) {
-    filtered = filtered.filter((p) => p.studentId === studentId);
+      const res = await fetch(`/api/outpass/list?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          let list = [...json.data];
+          // Sort newest to oldest by default
+          list.sort((a, b) => {
+            const timeA = new Date(a.fromTime || a.departureTime || a.appliedAt || a.createdAt).getTime();
+            const timeB = new Date(b.fromTime || b.departureTime || b.appliedAt || b.createdAt).getTime();
+            return sort === "oldest" ? timeA - timeB : timeB - timeA;
+          });
+          const paginationMeta = paginate(list, page, pageSize);
+          return successResponse(paginationMeta.items, {
+            total: paginationMeta.total,
+            page: paginationMeta.page,
+            pageSize: paginationMeta.pageSize,
+            totalPages: paginationMeta.totalPages,
+          });
+        }
+      }
+      return errorResponse("API_ERROR", "Failed to load passes from MySQL database.");
+    } catch (e) {
+      console.error("Could not fetch passes from MySQL API:", e);
+      return errorResponse("SERVER_ERROR", "Could not connect to hostel database service.");
+    }
   }
 
-  if (status && status !== "all") {
-    filtered = filtered.filter((p) => p.status === status);
-  }
-
-  if (type && type !== "all") {
-    filtered = filtered.filter((p) => {
-      const pType = (p.type || "").toLowerCase();
-      const target = type.toLowerCase();
-      return pType.includes(target);
-    });
-  }
-
-  if (search) {
-    const q = search.toLowerCase().trim();
-    filtered = filtered.filter(
-      (p) =>
-        p.id.toLowerCase().includes(q) ||
-        (p.passNumber && p.passNumber.toLowerCase().includes(q)) ||
-        (p.destination && p.destination.toLowerCase().includes(q)) ||
-        p.studentName.toLowerCase().includes(q) ||
-        p.studentId.toLowerCase().includes(q) ||
-        p.reason.toLowerCase().includes(q)
-    );
-  }
-
-  // Sort
-  filtered.sort((a, b) => {
-    const timeA = new Date(a.fromTime || a.departureTime || a.appliedAt).getTime();
-    const timeB = new Date(b.fromTime || b.departureTime || b.appliedAt).getTime();
-    return sort === "oldest" ? timeA - timeB : timeB - timeA;
-  });
-
-  const paginationMeta = paginate(filtered, page, pageSize);
+  const paginationMeta = paginate([], page, pageSize);
   return successResponse(paginationMeta.items, {
-    total: paginationMeta.total,
-    page: paginationMeta.page,
-    pageSize: paginationMeta.pageSize,
-    totalPages: paginationMeta.totalPages,
+    total: 0,
+    page,
+    pageSize,
+    totalPages: 0,
   });
 }
 
@@ -74,14 +68,21 @@ export async function listPasses({ page = 1, pageSize = 20, studentId = "", stat
  * @param {string} passId
  */
 export async function getPassById(passId) {
-  await simulateLatency(150, 300);
-  // TODO(BACKEND): replace with Supabase call `supabase.from('passes').select('*').eq('id', passId).single()`
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const found = passes.find((p) => p.id === passId || p.passNumber === passId);
-  if (!found) {
-    return errorResponse("NOT_FOUND", "Outpass record not found.");
+  if (typeof window !== "undefined" && passId) {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.data) {
+          return successResponse(json.data);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch pass from MySQL API:", e);
+    }
   }
-  return successResponse(found);
+
+  return errorResponse("NOT_FOUND", "Outpass record not found.");
 }
 
 /**
@@ -100,11 +101,42 @@ export async function getPassById(passId) {
  * @param {string|Date} params.to
  * @returns {Promise<{ ok: boolean, data: { eligible: boolean, reasons: string[] } }>}
  */
-export async function checkEligibility({ studentId, type = "Local Pass", from, to }) {
-  await simulateLatency(100, 200);
-  // TODO(BACKEND): replace with Supabase RPC `supabase.rpc('check_pass_eligibility', { student_id, type, from_time, to_time })`
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const studentPasses = passes.filter((p) => p.studentId === studentId);
+export async function checkEligibility({ studentId, type = "Local Pass", from, to, studentPasses: passedPasses }) {
+  let studentPasses = passedPasses || [];
+  if (studentPasses.length === 0 && studentId) {
+    if (typeof window !== "undefined") {
+      try {
+        const res = await fetch(`/api/outpass/list?studentId=${encodeURIComponent(studentId)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ok && Array.isArray(json.data)) {
+            studentPasses = json.data;
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch student passes for eligibility:", e);
+      }
+    } else {
+      // In server/Node environment, fetch from MySQL directly
+      try {
+        const { query } = await import("@/lib/db/mysql.js");
+        const rows = await query(
+          "SELECT * FROM outpasses WHERE student_id = ? OR student_id = (SELECT id FROM users WHERE id = ? LIMIT 1)",
+          [studentId, studentId]
+        );
+        studentPasses = rows.map((r) => ({
+          ...r,
+          type: r.type,
+          fromTime: r.departure_time,
+          toTime: r.expected_return_time,
+          departureTime: r.departure_time,
+          expectedReturnTime: r.expected_return_time,
+          appliedAt: r.created_at,
+          createdAt: r.created_at,
+        }));
+      } catch (e) {}
+    }
+  }
 
   const reasons = [];
 
@@ -125,31 +157,12 @@ export async function checkEligibility({ studentId, type = "Local Pass", from, t
       reasons.push("Return time must be later than departure time.");
     }
 
-    // 2. Overlap Check with active or pending passes
-    const activeStatuses = [
-      PASS_STATUSES.PENDING,
-      PASS_STATUSES.RECOMMENDED,
-      PASS_STATUSES.APPROVED,
-      PASS_STATUSES.GATE_PASS_ISSUED,
-      PASS_STATUSES.OUT,
-    ];
+    const isHome = (type || "").toLowerCase().includes("home");
+    const isLocal = !isHome && (type || "").toLowerCase().includes("local");
 
-    const hasOverlap = studentPasses.some((p) => {
-      if (!activeStatuses.includes(p.status)) return false;
-      const pFrom = new Date(p.fromTime || p.departureTime).getTime();
-      const pTo = new Date(p.toTime || p.expectedReturnTime).getTime();
-      // Overlaps if (StartA <= EndB) and (EndA >= StartB)
-      return fromTimeMs < pTo && toTimeMs > pFrom;
-    });
-
-    if (hasOverlap) {
-      reasons.push("You already have an active or pending pass for an overlapping time window.");
-    }
-
-    // 3. Local Pass Specific Checks
-    const isLocal = (type || "").toLowerCase().includes("local");
     if (isLocal) {
-      // Must be same day
+      // Local Pass: Unlimited applications permitted at any time (no daily/weekly/monthly quota, no overlap restrictions)
+      // Must be completed on the same day
       const isSameDay =
         fromDate.getFullYear() === toDate.getFullYear() &&
         fromDate.getMonth() === toDate.getMonth() &&
@@ -167,29 +180,14 @@ export async function checkEligibility({ studentId, type = "Local Pass", from, t
       if (toDate.getTime() > cutoffTime.getTime()) {
         reasons.push(`Local passes must return by ${WORKFLOW_CONFIG.localPassLatestReturnTime || "21:00"} (9:00 PM).`);
       }
-    } else {
-      // 4. Home Pass Specific Checks
-      // Max days: WORKFLOW_CONFIG.maxHomePassDays (15 days)
+    } else if (isHome) {
+      // 4. Home Pass: UNLIMITED applications (no daily, weekly, monthly, or yearly limit)
+      // Completely bypasses the overlapping-time restriction.
+      // Allows multiple applications on same day, overlapping time windows, pending or approved passes.
       const durationDays = (toTimeMs - fromTimeMs) / (1000 * 60 * 60 * 24);
       const maxDays = WORKFLOW_CONFIG.maxHomePassDays || 15;
       if (durationDays > maxDays) {
         reasons.push(`Home passes cannot exceed ${maxDays} days duration.`);
-      }
-
-      // Monthly limit: count Home Passes for student in this month that are not rejected or cancelled
-      const targetMonth = fromDate.getMonth();
-      const targetYear = fromDate.getFullYear();
-      const homePassesThisMonth = studentPasses.filter((p) => {
-        const pType = (p.type || "").toLowerCase();
-        if (!pType.includes("home")) return false;
-        if (p.status === PASS_STATUSES.REJECTED || p.status === PASS_STATUSES.CANCELLED) return false;
-        const pDate = new Date(p.fromTime || p.departureTime || p.appliedAt);
-        return pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear;
-      });
-
-      const maxMonthly = WORKFLOW_CONFIG.maxHomePassesPerMonth || 2;
-      if (homePassesThisMonth.length >= maxMonthly) {
-        reasons.push(`Monthly Home Pass limit reached (maximum ${maxMonthly} home passes per calendar month).`);
       }
     }
   }
@@ -210,8 +208,8 @@ export async function applyPass(passData) {
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
   const policy = getPolicy();
@@ -227,7 +225,7 @@ export async function applyPass(passData) {
       if (!passData.letterId) {
         return errorResponse(
           "LETTER_REQUIRED",
-          `Home passes exceeding ${threshold} days require an approved special permission letter from Principal or Correspondent.`
+          `Home passes exceeding ${threshold} days require an approved special permission letter from Correspondent.`
         );
       }
       const check = isLetterSatisfied({ letterId: passData.letterId });
@@ -240,113 +238,92 @@ export async function applyPass(passData) {
     }
   }
 
-  // TODO(BACKEND): replace with Supabase call `supabase.from('passes').insert([newPass])`
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const passIdx = passes.length + 1;
-  const passId = `DMI-PASS-2026-${String(passIdx).padStart(4, "0")}`;
-  const passNumber = `PASS-2026-${String(passIdx).padStart(4, "0")}`;
+  // 1. Submit directly to MySQL Outpass API when in browser
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/outpass/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(passData),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        return errorResponse(json.code || "APPLY_FAILED", json.message || "Failed to submit outpass application.");
+      }
+      return successResponse(json.data);
+    } catch (err) {
+      console.error("[PassService] Backend applyPass error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to outpass service.");
+    }
+  }
 
-  const nowIso = new Date().toISOString();
-  const rawPass = {
-    ...passData,
-    id: passId,
-    passNumber,
-    status: PASS_STATUSES.PENDING,
-    appliedAt: nowIso,
-    departureTime: passData.fromTime || passData.departureTime || nowIso,
-    expectedReturnTime: passData.toTime || passData.expectedReturnTime || nowIso,
-    letterId: passData.letterId || null,
-    timeline: [
-      {
-        status: "applied",
-        label: "Pass Request Submitted",
-        timestamp: nowIso,
-        actor: passData.studentName || "Resident",
-        note: passData.reason || "Standard student request",
-      },
-    ],
-  };
-
-  const newPass = {
-    ...rawPass,
-  };
-
-  const updated = [newPass, ...passes];
-  setPersistentMock(STORAGE_KEYS.PASSES, updated);
-  return successResponse(newPass);
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
  * Recommend a pass (Academic Staff / HOD)
  */
-export async function recommendPass(passId, actorName = "Prof. Rajesh Sharma (Faculty Advisor)", note = "Academic standing verified and cleared.") {
-  await simulateLatency(300, 500);
+export async function recommendPass(passId, actorName, note) {
+  await simulateLatency(150, 300);
 
   const session = getCurrentSession();
-  const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  const callerRole = (session?.user?.role || session?.role || "").toLowerCase();
+  if (callerRole === ROLES.CORRESPONDENT || callerRole === "correspondent") {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
-  return updatePassStatus(passId, PASS_STATUSES.RECOMMENDED, actorName, note);
+  const roleToSend = callerRole === "hod" ? "hod" : "staff";
+  const defaultNote = roleToSend === "hod" ? "Endorsed and forwarded to Chief Warden" : "Recommended by Staff";
+  const defaultActor = roleToSend === "hod" ? "Head of Department" : "Faculty Advisor";
+
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: roleToSend,
+          actorUserId: session?.user?.id || (roleToSend === "hod" ? "FY_HOD" : "FY_STAFF"),
+          actorName: actorName || session?.user?.name || defaultActor,
+          remarks: note || defaultNote,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        return errorResponse(json.code || "RECOMMEND_FAILED", json.message || "Failed to recommend pass");
+      }
+      return successResponse(json.data || { id: passId, status: PASS_STATUSES.RECOMMENDED });
+    } catch (err) {
+      console.error("[PassService] recommendPass error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to recommendation service.");
+    }
+  }
+
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
  * Approve a pass (Warden)
  */
 export async function approvePass(passId, actorName = "Dr. John Xavier (Chief Warden)", note = "Outpass approved for campus exit.") {
-  await simulateLatency(300, 500);
+  await simulateLatency(150, 300);
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const pass = passes.find((p) => p.id === passId || p.passNumber === passId);
-  if (!pass) return errorResponse("NOT_FOUND", "Pass not found.");
-
-  const policy = getPolicy();
-  if (policy.requireStaffRecommendation) {
-    const hasRecommend = (pass.recommendations || []).some((r) => r.verdict === "recommend");
-    if (!hasRecommend) {
-      return errorResponse(
-        "RECOMMENDATION_REQUIRED",
-        "Warden cannot approve: Staff or HOD recommendation is required before approval."
-      );
-    }
-  }
-
-  // Check letter requirement if enabled
-  if (policy.studentLetters?.enabled && policy.studentLetters?.letterApprovalRequired) {
-    const isHomePass = (pass.type || "").toLowerCase().includes("home");
-    const dep = new Date(pass.departureTime || pass.fromTime || Date.now());
-    const ret = new Date(pass.expectedReturnTime || pass.toTime || Date.now());
-    const days = Math.max(1, Math.round((ret - dep) / (1000 * 60 * 60 * 24)));
-    const threshold = policy.studentLetters.requiredHomeDays || 7;
-
-    if (isHomePass && days > threshold) {
-      const check = isLetterSatisfied({ passId: pass.id, letterId: pass.letterId });
-      if (!check.satisfied) {
-        return errorResponse(
-          "LETTER_REQUIRED",
-          `Warden cannot approve: An approved Principal/Correspondent letter is required for this extended pass (${check.reason}).`
-        );
-      }
-    }
-  }
-
-  // 1. Try Backend API for Warden Approval
-  try {
-    if (typeof window !== "undefined") {
-      const res = await fetch(`/api/outpass/${passId}/approve`, {
+  // 1. Submit directly to MySQL Outpass Approve API
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           role: "warden",
-          actorUserId: "W-001",
-          actorName: actorName || "Dr. John Xavier (Chief Warden)",
+          actorUserId: session?.user?.id || "W-001",
+          actorName: actorName || session?.user?.name || "Dr. John Xavier (Chief Warden)",
           remarks: note || "Approved for campus exit",
         }),
       });
@@ -354,61 +331,90 @@ export async function approvePass(passId, actorName = "Dr. John Xavier (Chief Wa
       if (!res.ok) {
         return errorResponse(json.code || "APPROVAL_FAILED", json.message || "Failed to approve pass");
       }
+      return successResponse(json.data || { id: passId, status: PASS_STATUSES.APPROVED });
+    } catch (err) {
+      console.error("[PassService] Backend approvePass error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to approval service.");
     }
-  } catch (err) {
-    console.warn("[PassService] Backend approvePass error:", err);
   }
 
-  return updatePassStatus(passId, PASS_STATUSES.APPROVED, actorName, note);
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
  * Reject a pass with reason
  */
-export async function rejectPass(passId, actorName = "Dr. John Xavier (Chief Warden)", reason = "Curfew restriction during assessment period.") {
-  await simulateLatency(300, 500);
+export async function rejectPass(passId, actorName, reason) {
+  await simulateLatency(150, 300);
 
   const session = getCurrentSession();
-  const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  const callerRole = (session?.user?.role || session?.role || "").toLowerCase();
+  if (callerRole === ROLES.CORRESPONDENT || callerRole === "correspondent") {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
-  // 1. Try Backend API for Warden Rejection
-  try {
-    if (typeof window !== "undefined") {
-      const res = await fetch(`/api/outpass/${passId}/reject`, {
+  const roleToSend = callerRole === "hod" ? "hod" : callerRole === "staff" ? "staff" : "warden";
+  const defaultActor = roleToSend === "hod" ? "Head of Department" : roleToSend === "staff" ? "Faculty Advisor" : "Dr. John Xavier (Chief Warden)";
+  const cleanReason = String(reason || "").trim() || "Declined during academic / administrative review.";
+
+  // 1. Submit directly to MySQL Outpass Reject API
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          role: "warden",
-          actorUserId: "W-001",
-          actorName: actorName || "Dr. John Xavier (Chief Warden)",
-          remarks: reason || "Curfew restriction during assessment period.",
+          role: roleToSend,
+          actorUserId: session?.user?.id || (roleToSend === "hod" ? "FY_HOD" : roleToSend === "staff" ? "FY_STAFF" : "WARDEN-001"),
+          actorName: actorName || session?.user?.name || defaultActor,
+          remarks: cleanReason,
         }),
       });
       const json = await res.json();
       if (!res.ok) {
         return errorResponse(json.code || "REJECTION_FAILED", json.message || "Failed to reject pass");
       }
+      return successResponse(json.data || { id: passId, status: PASS_STATUSES.REJECTED });
+    } catch (err) {
+      console.error("[PassService] Backend rejectPass error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to rejection service.");
     }
-  } catch (err) {
-    console.warn("[PassService] Backend rejectPass error:", err);
   }
 
-  return updatePassStatus(passId, PASS_STATUSES.REJECTED, actorName, reason);
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
  * Issue Digital Gate Pass (QR)
  */
 export async function issueGatePass(passId) {
-  await simulateLatency(300, 500);
+  await simulateLatency(200, 350);
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
+  }
+
+  // Direct backend sync to MySQL
+  if (typeof window !== "undefined" && passId) {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: PASS_STATUSES.GATE_PASS_ISSUED,
+          actor: "Hostel Gate Pass Authority",
+          note: "Digital QR gate pass issued for scanner.",
+        }),
+      });
+      if (res.ok) {
+        updatePassStatus(passId, PASS_STATUSES.GATE_PASS_ISSUED, "Hostel Gate Pass Authority", "Digital QR gate pass issued for scanner.");
+        return successResponse({ id: passId, status: PASS_STATUSES.GATE_PASS_ISSUED });
+      }
+    } catch (e) {
+      console.warn("Could not sync gate pass issue to MySQL:", e);
+    }
   }
 
   return updatePassStatus(passId, PASS_STATUSES.GATE_PASS_ISSUED, "Hostel Gate Pass Authority", "Digital QR gate pass issued for scanner.");
@@ -418,15 +424,59 @@ export async function issueGatePass(passId) {
  * Cancel an outpass
  */
 export async function cancelPass(passId, reason = "Cancelled by student") {
-  await simulateLatency(250, 450);
+  await simulateLatency(150, 300);
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
-  return updatePassStatus(passId, PASS_STATUSES.CANCELLED, "Resident", reason);
+  if (typeof window !== "undefined" && passId) {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", status: "cancelled", reason }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) {
+        return successResponse({ id: passId, status: PASS_STATUSES.CANCELLED });
+      }
+      return errorResponse(json.code || "CANCEL_FAILED", json.message || "Failed to cancel pass.");
+    } catch (e) {
+      console.error("Could not cancel pass via MySQL API:", e);
+      return errorResponse("SERVER_ERROR", "Could not connect to pass cancellation service.");
+    }
+  }
+
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
+}
+
+/**
+ * Delete a rejected outpass
+ */
+export async function deletePass(passId) {
+  await simulateLatency(100, 250);
+
+  if (typeof window !== "undefined" && passId) {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) {
+        return successResponse({ id: passId, deleted: true, message: json.message });
+      }
+      return errorResponse(json.code || "DELETE_FAILED", json.message || "Failed to delete outpass.");
+    } catch (e) {
+      console.error("Could not delete pass via MySQL API:", e);
+      return errorResponse("SERVER_ERROR", "Could not connect to pass deletion service.");
+    }
+  }
+
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
@@ -525,30 +575,28 @@ function updatePassStatus(passId, newStatus, actor, note) {
  * @param {string} studentId
  */
 export async function getPassHistory(studentId) {
-  await simulateLatency(150, 300);
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const history = passes
-    .filter((p) => p.studentId === studentId)
-    .sort((a, b) => new Date(b.fromTime || b.departureTime || b.appliedAt) - new Date(a.fromTime || a.departureTime || a.appliedAt));
-  return successResponse(history);
+  const res = await listPasses({ studentId, pageSize: 100 });
+  if (res.ok) {
+    return successResponse(res.data);
+  }
+  return successResponse([]);
 }
 
 /**
  * Get aggregate pass statistics
  */
 export async function getPassStats() {
-  await simulateLatency(200, 400);
-  // TODO(BACKEND): replace with Supabase RPC `supabase.rpc('get_pass_dashboard_stats')`
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+  const res = await listPasses({ pageSize: 1000 });
+  const passes = res.ok && Array.isArray(res.data) ? res.data : [];
   return successResponse({
     total: passes.length,
-    pending: passes.filter((p) => p.status === PASS_STATUSES.PENDING).length,
-    recommended: passes.filter((p) => p.status === PASS_STATUSES.RECOMMENDED).length,
-    approved: passes.filter((p) => p.status === PASS_STATUSES.APPROVED).length,
-    gatePassIssued: passes.filter((p) => p.status === PASS_STATUSES.GATE_PASS_ISSUED).length,
-    currentlyOut: passes.filter((p) => p.status === PASS_STATUSES.OUT).length,
-    overdue: passes.filter((p) => p.status === PASS_STATUSES.OVERDUE).length,
-    returned: passes.filter((p) => p.status === PASS_STATUSES.RETURNED).length,
+    pending: passes.filter((p) => p.status === PASS_STATUSES.PENDING || p.status === "pending").length,
+    recommended: passes.filter((p) => p.status === PASS_STATUSES.RECOMMENDED || p.status === "recommended").length,
+    approved: passes.filter((p) => p.status === PASS_STATUSES.APPROVED || p.status === "approved").length,
+    gatePassIssued: passes.filter((p) => p.status === PASS_STATUSES.GATE_PASS_ISSUED || p.status === "gate_pass_issued").length,
+    currentlyOut: passes.filter((p) => p.status === PASS_STATUSES.OUT || p.status === "out").length,
+    overdue: passes.filter((p) => p.status === PASS_STATUSES.OVERDUE || p.status === "overdue").length,
+    returned: passes.filter((p) => p.status === PASS_STATUSES.RETURNED || p.status === "returned").length,
   });
 }
 
@@ -566,140 +614,190 @@ function getActiveStaffOrHod() {
 
 /**
  * List passes scoped strictly to department and staff assigned years
+ * Authoritative: Fetches directly from MySQL outpasses via /api/outpass/list
  * @param {object} params
  */
 export async function listForDepartment({ filters = {}, page = 1, pageSize = 20 } = {}) {
   await simulateLatency(150, 300);
   const user = getActiveStaffOrHod();
   const dept = user.dept || user.department || "CSE";
-  const isStaff = user.role === ROLES.STAFF;
+  const isStaff = user.role === ROLES.STAFF || user.role === "staff";
+  const isHod = user.role === ROLES.HOD || user.role === "hod";
   const assignedYears = Array.isArray(user.assignedYears) ? user.assignedYears : [];
 
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+  // Query authoritative MySQL Outpass API
+  if (typeof window !== "undefined") {
+    try {
+      const q = new URLSearchParams({ role: isHod ? "hod" : "staff", department: dept });
+      if (filters.search) q.set("search", filters.search);
 
-  // Try backend list to merge active department requests
-  try {
-    if (typeof window !== "undefined") {
-      const q = new URLSearchParams({ role: "staff", department: dept });
       const res = await fetch(`/api/outpass/list?${q.toString()}`);
       if (res.ok) {
         const json = await res.json();
         if (json.ok && Array.isArray(json.data)) {
-          for (const bp of json.data) {
-            const existingIdx = passes.findIndex((p) => p.id === bp.id || p.passNumber === bp.pass_number);
-            const mapped = {
+          let list = json.data.map((bp) => {
+            const rawStatus = (bp.status || bp.overall_status || "").toLowerCase();
+            return {
               ...bp,
               id: bp.id,
-              passNumber: bp.pass_number,
-              status:
-                bp.overall_status === "PENDING_STAFF"
-                  ? PASS_STATUSES.PENDING
-                  : bp.overall_status === "STAFF_APPROVED"
-                  ? PASS_STATUSES.RECOMMENDED
-                  : bp.overall_status.toLowerCase(),
-              overallStatus: bp.overall_status,
-              type: bp.outpass_type,
-              departureTime: bp.departure_time,
-              fromTime: bp.departure_time,
-              expectedReturnTime: bp.expected_return_time,
-              toTime: bp.expected_return_time,
-              appliedAt: bp.created_at,
-              studentName: bp.student_name,
-              studentId: bp.student_id,
+              passNumber: bp.pass_number || bp.passNumber || bp.id,
+              status: rawStatus === "recommended" ? PASS_STATUSES.RECOMMENDED : bp.status,
+              overallStatus: bp.status,
+              type: bp.type || bp.outpass_type,
+              departureTime: bp.departure_time || bp.departureTime,
+              fromTime: bp.departure_time || bp.departureTime,
+              expectedReturnTime: bp.expected_return_time || bp.expectedReturnTime,
+              toTime: bp.expected_return_time || bp.expectedReturnTime,
+              appliedAt: bp.created_at || bp.createdAt || bp.appliedAt,
+              studentName: bp.student_name || bp.studentName,
+              studentId: bp.student_id || bp.studentId,
               department: bp.department,
               dept: bp.department,
-              year: bp.year || 3,
+              year: bp.year,
+              floor: bp.floor,
+              room: bp.room_number || bp.room,
               reason: bp.reason,
               destination: bp.destination,
+              emergency: Boolean(bp.emergency),
+              parentPhone: bp.parentPhone || bp.parent_phone || "",
+              parentName: bp.parentName || bp.parent_name || bp.guardianName || bp.guardian_name || "",
+              parentRelation: bp.parentRelation || bp.parent_relation || bp.guardianRelation || bp.guardian_relation || "",
+              hasParentPhone: Boolean(bp.hasParentPhone || bp.parentPhone || bp.parent_phone),
+              guardianPhone: bp.parentPhone || bp.parent_phone || bp.guardianPhone || bp.guardian_phone || bp.student_guardian_phone || "",
+              guardianName: bp.parentName || bp.parent_name || bp.guardianName || bp.guardian_name || "",
+              guardianRelation: bp.parentRelation || bp.parent_relation || bp.guardianRelation || bp.guardian_relation || "",
+              studentPhone: bp.student_phone || bp.studentPhone || "",
+              photoUrl: bp.photoUrl || bp.studentPhoto || bp.photo_url || (bp.student_id ? `/api/student/profile/photo?studentId=${encodeURIComponent(bp.student_id)}` : null),
+              studentPhoto: bp.photoUrl || bp.studentPhoto || bp.photo_url || (bp.student_id ? `/api/student/profile/photo?studentId=${encodeURIComponent(bp.student_id)}` : null),
+              regNo: bp.reg_no || bp.regNo || "",
+              staffApprovalStatus: bp.staff_approval_status || bp.staffApprovalStatus,
+              staffRemarks: bp.staff_remarks || bp.staffRemarks,
+              staffApprovedBy: bp.staff_approved_by || bp.staffApprovedBy,
+              staffApprovedAt: bp.staff_approved_at || bp.staffApprovedAt,
+              hodApprovalStatus: bp.hod_approval_status || bp.hodApprovalStatus,
+              hodRemarks: bp.hod_remarks || bp.hodRemarks,
+              hodApprovedBy: bp.hod_approved_by || bp.hodApprovedBy,
+              hodApprovedAt: bp.hod_approved_at || bp.hodApprovedAt,
+              wardenRemarks: bp.warden_remarks || bp.wardenRemarks,
+              recommendations: bp.recommendations || [],
             };
-            if (existingIdx === -1) {
-              passes.unshift(mapped);
+          });
+
+          // Department & Year scoping
+          let filtered = list.filter((p) => {
+            const passDept = p.department || p.dept || "";
+            if (dept && dept !== "ALL" && passDept && passDept.toLowerCase() !== dept.toLowerCase()) return false;
+            if (assignedYears.length > 0) {
+              return assignedYears.includes(Number(p.year));
+            }
+            return true;
+          });
+
+          // Tab filter: 'awaiting_recommendation' | 'recommended_by_me' | 'all'
+          const tab = filters.tab || "awaiting_recommendation";
+          if (tab === "awaiting_recommendation") {
+            if (isHod) {
+              filtered = filtered.filter(
+                (p) =>
+                  (p.staffApprovalStatus === "APPROVED" || p.staff_approval_status === "APPROVED") &&
+                  p.hodApprovalStatus !== "APPROVED" &&
+                  p.hod_approval_status !== "APPROVED" &&
+                  (p.status || "").toLowerCase() !== "rejected"
+              );
             } else {
-              passes[existingIdx] = { ...passes[existingIdx], ...mapped };
+              filtered = filtered.filter(
+                (p) =>
+                  (p.status || "").toLowerCase() === "pending" &&
+                  p.staffApprovalStatus !== "APPROVED" &&
+                  p.staff_approval_status !== "APPROVED"
+              );
+            }
+          } else if (tab === "recommended_by_me") {
+            if (isHod) {
+              filtered = filtered.filter(
+                (p) =>
+                  p.hodApprovalStatus === "APPROVED" ||
+                  p.hod_approval_status === "APPROVED" ||
+                  (p.recommendations || []).some((r) => r.byId === user.id)
+              );
+            } else {
+              filtered = filtered.filter(
+                (p) =>
+                  p.staffApprovalStatus === "APPROVED" ||
+                  p.staff_approval_status === "APPROVED" ||
+                  (p.recommendations || []).some((r) => r.byId === user.id)
+              );
             }
           }
+
+          // Search filter
+          if (filters.search) {
+            const sq = filters.search.toLowerCase().trim();
+            filtered = filtered.filter(
+              (p) =>
+                (p.studentName && p.studentName.toLowerCase().includes(sq)) ||
+                (p.studentId && p.studentId.toLowerCase().includes(sq)) ||
+                (p.passNumber && p.passNumber.toLowerCase().includes(sq)) ||
+                (p.destination && p.destination.toLowerCase().includes(sq)) ||
+                (p.reason && p.reason.toLowerCase().includes(sq))
+            );
+          }
+
+          // Year filter
+          if (filters.year && filters.year !== "all") {
+            filtered = filtered.filter((p) => String(p.year) === String(filters.year));
+          }
+
+          // Floor filter
+          if (filters.floor && filters.floor !== "all") {
+            filtered = filtered.filter((p) => p.floor === filters.floor);
+          }
+
+          // Emergency filter
+          if (filters.emergency === true || filters.emergency === "true") {
+            filtered = filtered.filter((p) => p.emergency === true);
+          }
+
+          // Status filter
+          if (filters.status && filters.status !== "all") {
+            filtered = filtered.filter((p) => (p.status || "").toLowerCase() === String(filters.status).toLowerCase());
+          }
+
+          // Sort newest first
+          filtered.sort((a, b) => {
+            const tA = new Date(a.appliedAt || a.fromTime || a.departureTime || 0).getTime();
+            const tB = new Date(b.appliedAt || b.fromTime || b.departureTime || 0).getTime();
+            return tB - tA;
+          });
+
+          const paginationMeta = paginate(filtered, page, pageSize);
+          return successResponse(paginationMeta.items, {
+            total: paginationMeta.total,
+            page: paginationMeta.page,
+            pageSize: paginationMeta.pageSize,
+            totalPages: paginationMeta.totalPages,
+          });
         }
       }
+      return errorResponse("API_ERROR", "Failed to retrieve department passes from MySQL.");
+    } catch (err) {
+      console.error("[PassService] Backend listForDepartment error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to database service.");
     }
-  } catch (err) {
-    console.warn("[PassService] Backend listForDepartment error:", err);
   }
 
-  // Department & Year scoping
-  let filtered = passes.filter((p) => {
-    const passDept = p.department || p.dept || "";
-    if (passDept !== dept) return false;
-    if (isStaff && assignedYears.length > 0) {
-      return assignedYears.includes(Number(p.year));
-    }
-    return true;
-  });
-
-  // Tab filter: 'awaiting_recommendation' | 'recommended_by_me' | 'all'
-  const tab = filters.tab || "awaiting_recommendation";
-  if (tab === "awaiting_recommendation") {
-    filtered = filtered.filter(
-      (p) =>
-        p.status === PASS_STATUSES.PENDING &&
-        !(p.recommendations || []).some((r) => r.byId === user.id)
-    );
-  } else if (tab === "recommended_by_me") {
-    filtered = filtered.filter((p) =>
-      (p.recommendations || []).some((r) => r.byId === user.id)
-    );
-  }
-
-  // Search filter
-  if (filters.search) {
-    const q = filters.search.toLowerCase().trim();
-    filtered = filtered.filter(
-      (p) =>
-        (p.studentName && p.studentName.toLowerCase().includes(q)) ||
-        (p.studentId && p.studentId.toLowerCase().includes(q)) ||
-        (p.passNumber && p.passNumber.toLowerCase().includes(q)) ||
-        (p.destination && p.destination.toLowerCase().includes(q)) ||
-        (p.reason && p.reason.toLowerCase().includes(q))
-    );
-  }
-
-  // Year filter
-  if (filters.year && filters.year !== "all") {
-    filtered = filtered.filter((p) => String(p.year) === String(filters.year));
-  }
-
-  // Floor filter
-  if (filters.floor && filters.floor !== "all") {
-    filtered = filtered.filter((p) => p.floor === filters.floor);
-  }
-
-  // Emergency filter
-  if (filters.emergency === true || filters.emergency === "true") {
-    filtered = filtered.filter((p) => p.emergency === true);
-  }
-
-  // Status filter
-  if (filters.status && filters.status !== "all") {
-    filtered = filtered.filter((p) => p.status === filters.status);
-  }
-
-  // Sort newest first
-  filtered.sort((a, b) => {
-    const tA = new Date(a.appliedAt || a.fromTime || a.departureTime || 0).getTime();
-    const tB = new Date(b.appliedAt || b.fromTime || b.departureTime || 0).getTime();
-    return tB - tA;
-  });
-
-  const paginationMeta = paginate(filtered, page, pageSize);
+  const paginationMeta = paginate([], page, pageSize);
   return successResponse(paginationMeta.items, {
-    total: paginationMeta.total,
-    page: paginationMeta.page,
-    pageSize: paginationMeta.pageSize,
-    totalPages: paginationMeta.totalPages,
+    total: 0,
+    page,
+    pageSize,
+    totalPages: 0,
   });
 }
 
 /**
  * Submit an advisory recommendation on a pass (Staff / HOD)
+ * Writes directly to MySQL outpasses and pass_timeline tables
  * @param {object} params
  * @param {string} params.passId
  * @param {'recommend'|'do_not_recommend'} params.verdict
@@ -710,8 +808,8 @@ export async function recommend({ passId, verdict, note = "" }) {
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
   if (!["recommend", "do_not_recommend"].includes(verdict)) {
@@ -723,98 +821,38 @@ export async function recommend({ passId, verdict, note = "" }) {
   }
 
   const user = getActiveStaffOrHod();
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const index = passes.findIndex((p) => p.id === passId || p.passNumber === passId);
-  if (index === -1) {
-    return errorResponse("NOT_FOUND", "Pass not found.");
-  }
+  const effectiveRole = (user.role === ROLES.HOD || user.role === "hod" || callerRole === "hod" || callerRole === ROLES.HOD) ? "hod" : "staff";
 
-  const pass = passes[index];
-
-  // Scope check
-  const dept = user.dept || user.department || "CSE";
-  if ((pass.department || pass.dept) !== dept) {
-    return errorResponse("NOT_ALLOWED", "Out of department scope.");
-  }
-  if (user.role === ROLES.STAFF && Array.isArray(user.assignedYears) && user.assignedYears.length > 0) {
-    if (!user.assignedYears.includes(Number(pass.year))) {
-      return errorResponse("NOT_ALLOWED", "Out of assigned year scope.");
-    }
-  }
-
-  // 1. Try Backend API for staff recommendation decision
-  try {
-    if (typeof window !== "undefined") {
+  if (typeof window !== "undefined") {
+    try {
       const endpoint = verdict === "recommend" ? "approve" : "reject";
-      const res = await fetch(`/api/outpass/${passId}/${endpoint}`, {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          role: "staff",
+          role: effectiveRole,
           actorUserId: user.id,
           actorName: user.name,
-          remarks: note.trim() || (verdict === "recommend" ? "Academic standing verified and cleared." : "Declined by Department."),
+          remarks: note.trim() || (verdict === "recommend" ? (effectiveRole === "hod" ? "Endorsed and forwarded to Chief Warden." : "Academic standing verified and cleared.") : "Declined by Department."),
         }),
       });
       const json = await res.json();
       if (!res.ok) {
-        return errorResponse(json.code || "DECISION_FAILED", json.message || "Failed to submit recommendation");
+        return errorResponse(json.code || "DECISION_FAILED", json.message || "Failed to submit recommendation to MySQL.");
       }
+      return successResponse(json.data || { id: passId, status: verdict === "recommend" ? PASS_STATUSES.RECOMMENDED : "do_not_recommend" });
+    } catch (err) {
+      console.error("[PassService] Backend recommend error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to recommendation service.");
     }
-  } catch (err) {
-    console.warn("[PassService] Backend recommend error:", err);
   }
 
-  const nowIso = new Date().toISOString();
-  const newRec = {
-    byId: user.id,
-    name: user.name,
-    role: user.role,
-    verdict,
-    note: note.trim(),
-    at: nowIso,
-  };
-
-  // Filter out any previous recommendation by this same user to replace it
-  const existingRecs = (pass.recommendations || []).filter((r) => r.byId !== user.id);
-  const updatedRecs = [...existingRecs, newRec];
-
-  // Verdict action:
-  // If recommend and pass is pending -> status becomes 'recommended'
-  // If do_not_recommend -> pass status remains as-is (e.g. pending), but rec is recorded
-  let newStatus = pass.status;
-  if (verdict === "recommend" && pass.status === PASS_STATUSES.PENDING) {
-    newStatus = PASS_STATUSES.RECOMMENDED;
-  }
-
-  const roleLabel = user.role === ROLES.HOD ? "HOD" : "Faculty Advisor";
-  const updatedTimeline = [
-    ...(pass.timeline || []),
-    {
-      status: verdict === "recommend" ? PASS_STATUSES.RECOMMENDED : "do_not_recommend",
-      label: verdict === "recommend" ? `Recommended by ${roleLabel}` : `Not Recommended by ${roleLabel}`,
-      timestamp: nowIso,
-      actor: `${user.name} (${roleLabel})`,
-      note: note.trim() || (verdict === "recommend" ? "Academic standing verified and cleared." : ""),
-    },
-  ];
-
-  const updatedPass = {
-    ...pass,
-    status: newStatus,
-    recommendations: updatedRecs,
-    timeline: updatedTimeline,
-    updatedAt: nowIso,
-    lastRecommendationVerdict: verdict,
-  };
-
-  passes[index] = updatedPass;
-  setPersistentMock(STORAGE_KEYS.PASSES, passes);
-  return successResponse(updatedPass);
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
- * Bulk recommend passes in one action (skipping overdue students)
+ * Bulk recommend passes in one action
+ * Persists each recommendation directly to MySQL database
  * @param {object} params
  * @param {string[]} params.passIds
  * @param {string} [params.note]
@@ -824,93 +862,52 @@ export async function bulkRecommend({ passIds = [], note = "Bulk academic cleara
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
   const user = getActiveStaffOrHod();
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-
-  // Identify all students who have an overdue pass currently
-  const overdueStudentIds = new Set(
-    passes.filter((p) => p.status === PASS_STATUSES.OVERDUE).map((p) => p.studentId)
-  );
-
+  const effectiveRole = (user.role === ROLES.HOD || user.role === "hod" || callerRole === "hod" || callerRole === ROLES.HOD) ? "hod" : "staff";
   let recommendedCount = 0;
   const skippedPasses = [];
-  const nowIso = new Date().toISOString();
-  const roleLabel = user.role === ROLES.HOD ? "HOD" : "Faculty Advisor";
 
-  passes.forEach((pass, idx) => {
-    if (!passIds.includes(pass.id) && !passIds.includes(pass.passNumber)) return;
-
-    // Check if student has an overdue pass
-    if (overdueStudentIds.has(pass.studentId)) {
-      skippedPasses.push({
-        passId: pass.id,
-        studentName: pass.studentName,
-        studentId: pass.studentId,
-        reason: "Student currently has an overdue pass",
-      });
-      return;
+  if (typeof window !== "undefined") {
+    for (const passId of passIds) {
+      try {
+        const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}/approve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: effectiveRole,
+            actorUserId: user.id,
+            actorName: user.name,
+            remarks: note.trim(),
+          }),
+        });
+        const json = await res.json();
+        if (res.ok && json.ok) {
+          recommendedCount++;
+        } else {
+          skippedPasses.push({ passId, reason: json.message || "Failed to recommend" });
+        }
+      } catch (err) {
+        skippedPasses.push({ passId, reason: "Network or server error" });
+      }
     }
 
-    // Only pending passes can be recommended
-    if (pass.status !== PASS_STATUSES.PENDING && pass.status !== PASS_STATUSES.RECOMMENDED) {
-      skippedPasses.push({
-        passId: pass.id,
-        studentName: pass.studentName,
-        studentId: pass.studentId,
-        reason: `Pass is already in ${pass.status} status`,
-      });
-      return;
-    }
+    return successResponse({
+      recommendedCount,
+      skippedCount: skippedPasses.length,
+      skippedPasses,
+    });
+  }
 
-    const newRec = {
-      byId: user.id,
-      name: user.name,
-      role: user.role,
-      verdict: "recommend",
-      note: note.trim(),
-      at: nowIso,
-    };
-
-    const existingRecs = (pass.recommendations || []).filter((r) => r.byId !== user.id);
-    const updatedRecs = [...existingRecs, newRec];
-
-    const updatedTimeline = [
-      ...(pass.timeline || []),
-      {
-        status: PASS_STATUSES.RECOMMENDED,
-        label: `Recommended by ${roleLabel}`,
-        timestamp: nowIso,
-        actor: `${user.name} (${roleLabel})`,
-        note: note.trim(),
-      },
-    ];
-
-    passes[idx] = {
-      ...pass,
-      status: PASS_STATUSES.RECOMMENDED,
-      recommendations: updatedRecs,
-      timeline: updatedTimeline,
-      updatedAt: nowIso,
-      lastRecommendationVerdict: "recommend",
-    };
-    recommendedCount++;
-  });
-
-  setPersistentMock(STORAGE_KEYS.PASSES, passes);
-
-  return successResponse({
-    recommendedCount,
-    skippedCount: skippedPasses.length,
-    skippedPasses,
-  });
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
  * Undo recommendation for the current user within grace window
+ * Resets status to pending in MySQL database
  * @param {object} params
  * @param {string} params.passId
  */
@@ -919,93 +916,87 @@ export async function undoRecommendation({ passId }) {
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
   }
 
   const user = getActiveStaffOrHod();
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  const index = passes.findIndex((p) => p.id === passId || p.passNumber === passId);
-  if (index === -1) {
-    return errorResponse("NOT_FOUND", "Pass not found.");
+
+  if (typeof window !== "undefined" && passId) {
+    try {
+      const res = await fetch(`/api/outpass/${encodeURIComponent(passId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "pending",
+          actor: user.name,
+          note: "Recommendation reverted by advisor.",
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) {
+        return successResponse({ id: passId, status: PASS_STATUSES.PENDING });
+      }
+      return errorResponse(json.code || "UNDO_FAILED", json.message || "Failed to revert recommendation.");
+    } catch (err) {
+      console.error("[PassService] Undo recommendation error:", err);
+      return errorResponse("SERVER_ERROR", "Could not connect to service to revert recommendation.");
+    }
   }
 
-  const pass = passes[index];
-  const updatedRecs = (pass.recommendations || []).filter((r) => r.byId !== user.id);
-
-  // If no other positive recommendation exists and pass was 'recommended', revert to 'pending'
-  const hasOtherRecommend = updatedRecs.some((r) => r.verdict === "recommend");
-  let newStatus = pass.status;
-  if (pass.status === PASS_STATUSES.RECOMMENDED && !hasOtherRecommend) {
-    newStatus = PASS_STATUSES.PENDING;
-  }
-
-  const nowIso = new Date().toISOString();
-  const updatedTimeline = [
-    ...(pass.timeline || []),
-    {
-      status: "recommendation_undone",
-      label: "Recommendation Undone",
-      timestamp: nowIso,
-      actor: user.name,
-      note: "Recommendation reverted by advisor.",
-    },
-  ];
-
-  const updatedPass = {
-    ...pass,
-    status: newStatus,
-    recommendations: updatedRecs,
-    timeline: updatedTimeline,
-    updatedAt: nowIso,
-  };
-
-  passes[index] = updatedPass;
-  setPersistentMock(STORAGE_KEYS.PASSES, passes);
-  return successResponse(updatedPass);
+  return errorResponse("DATABASE_ERROR", "Backend service required.");
 }
 
 /**
  * Aggregate department recommendation statistics for badges & counters
+ * Authoritative: Derives counts directly from MySQL outpasses
  */
 export async function getRecommendationStats() {
   await simulateLatency(100, 200);
   const user = getActiveStaffOrHod();
   const dept = user.dept || user.department || "CSE";
-  const isStaff = user.role === ROLES.STAFF;
-  const assignedYears = Array.isArray(user.assignedYears) ? user.assignedYears : [];
 
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+  if (typeof window !== "undefined") {
+    try {
+      const q = new URLSearchParams({ role: "staff", department: dept });
+      const res = await fetch(`/api/outpass/list?${q.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          const deptPasses = json.data;
+          const awaiting = deptPasses.filter(
+            (p) => (p.status || "").toLowerCase() === "pending"
+          ).length;
+          const recommendedByMe = deptPasses.filter(
+            (p) => (p.status || "").toLowerCase() === "recommended"
+          ).length;
+          const emergencyCount = deptPasses.filter(
+            (p) => Boolean(p.emergency) && (p.status || "").toLowerCase() === "pending"
+          ).length;
+          const overdueCount = deptPasses.filter(
+            (p) => (p.status || "").toLowerCase() === "overdue"
+          ).length;
 
-  // Scope filter
-  const deptPasses = passes.filter((p) => {
-    if ((p.department || p.dept) !== dept) return false;
-    if (isStaff && assignedYears.length > 0) {
-      return assignedYears.includes(Number(p.year));
+          return successResponse({
+            awaiting,
+            recommendedByMe,
+            all: deptPasses.length,
+            emergency: emergencyCount,
+            overdue: overdueCount,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[PassService] Backend getRecommendationStats error:", err);
     }
-    return true;
-  });
-
-  const awaiting = deptPasses.filter(
-    (p) => p.status === PASS_STATUSES.PENDING && !(p.recommendations || []).some((r) => r.byId === user.id)
-  ).length;
-
-  const recommendedByMe = deptPasses.filter((p) =>
-    (p.recommendations || []).some((r) => r.byId === user.id)
-  ).length;
-
-  const emergencyCount = deptPasses.filter(
-    (p) => p.emergency === true && p.status === PASS_STATUSES.PENDING
-  ).length;
-
-  const overdueCount = deptPasses.filter((p) => p.status === PASS_STATUSES.OVERDUE).length;
+  }
 
   return successResponse({
-    awaiting,
-    recommendedByMe,
-    all: deptPasses.length,
-    emergency: emergencyCount,
-    overdue: overdueCount,
+    awaiting: 0,
+    recommendedByMe: 0,
+    all: 0,
+    emergency: 0,
+    overdue: 0,
   });
 }
 
@@ -1017,7 +1008,7 @@ export async function getRecommendationStats() {
 export async function getScannerEligibility(studentId, passId) {
   try {
     if (typeof window !== "undefined") {
-      const q = new URLSearchParams({ studentId: studentId || "CSE-3-001" });
+      const q = new URLSearchParams({ studentId: studentId || "" });
       if (passId) q.set("passId", passId);
       const res = await fetch(`/api/outpass/scanner-eligibility?${q.toString()}`);
       if (res.ok) {
@@ -1031,56 +1022,13 @@ export async function getScannerEligibility(studentId, passId) {
     console.warn("[PassService] Backend getScannerEligibility error:", err);
   }
 
-  // Fallback: evaluate mock passes
-  const passes = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
-  let pass = null;
-  if (passId) {
-    pass = passes.find((p) => p.id === passId || p.passNumber === passId);
-  } else {
-    pass = passes.find(
-      (p) =>
-        p.studentId === studentId &&
-        ["approved", "gate_pass_issued", "out", "overdue"].includes(p.status)
-    );
-  }
-
-  if (!pass) {
-    return successResponse({
-      canAccess: false,
-      state: "NO_PASS",
-      message: "No Warden-approved pass available.",
-      allowCamera: false,
-    });
-  }
-
-  const s = (pass.status || "").toLowerCase();
-  if (s === "out" || s === "overdue") {
-    return successResponse({
-      canAccess: true,
-      state: "EXIT_COMPLETED",
-      message: "Exit completed. Duplicate EXIT scan disabled. Camera active for RETURN scan.",
-      action: "ENTRY",
-      allowCamera: true,
-      pass,
-    });
-  }
-
-  if (s === "approved" || s === "gate_pass_issued" || s === "warden_approved") {
-    return successResponse({
-      canAccess: true,
-      state: "WARDEN_APPROVED",
-      message: "Warden Approved – Scanner Available",
-      action: "EXIT",
-      allowCamera: true,
-      pass,
-    });
-  }
-
+  // When backend API is unavailable or returns no eligible pass
   return successResponse({
     canAccess: false,
     state: "NO_PASS",
     message: "No Warden-approved pass available.",
     allowCamera: false,
+    pass: null,
   });
 }
 
@@ -1100,6 +1048,7 @@ export const passService = {
   rejectPass,
   issueGatePass,
   cancelPass,
+  deletePass,
   advancePassStatus,
   getPassHistory,
   getPassStats,

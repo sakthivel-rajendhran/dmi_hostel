@@ -16,8 +16,8 @@ export const WORKFLOW_CONFIG = {
   // Number of sequence digits
   seqDigits: 3,
 
-  // Maximum home outpasses permitted per student each calendar month
-  maxHomePassesPerMonth: 2,
+  // Home outpasses: Unlimited applications permitted at any time (no daily/monthly quota)
+  maxHomePassesPerMonth: null,
 
   // Maximum permissible consecutive days for a single home outpass
   maxHomePassDays: 15,
@@ -71,11 +71,12 @@ export const WORKFLOW_CONFIG = {
   departments: [
     { code: "CSE", name: "Computer Science & Engineering" },
     { code: "IT", name: "Information Technology" },
-    { code: "ECE", name: "Electronics & Communication Engineering" },
-    { code: "EEE", name: "Electrical & Electronics Engineering" },
-    { code: "MECH", name: "Mechanical Engineering" },
-    { code: "CIVIL", name: "Civil Engineering" },
     { code: "AI&DS", name: "Artificial Intelligence & Data Science" },
+    { code: "AI&ML", name: "Artificial Intelligence & Machine Learning" },
+    { code: "CIVIL", name: "Civil Engineering" },
+    { code: "MECH", name: "Mechanical Engineering" },
+    { code: "EEE", name: "Electrical and Electronics Engineering" },
+    { code: "ECE", name: "Electronics and Communication Engineering" },
   ],
 
   // Academic programmes
@@ -114,7 +115,7 @@ export const WORKFLOW_CONFIG = {
   // Optional Module: Student Letter Approval (feature-flagged, OFF by default)
   studentLetters: {
     enabled: false,
-    approverMode: "either", // 'principal_only' | 'correspondent_only' | 'either' | 'both'
+    approverMode: "correspondent_only", // 'correspondent_only'
     letterApprovalRequired: false,
     requiredFor: ["home_over_days"],
     requiredHomeDays: 7,
@@ -128,5 +129,7 @@ export const WORKFLOW_CONFIG = {
     ],
   },
 };
+
+export const DEPARTMENT_CODES = WORKFLOW_CONFIG.departments.map((d) => d.code);
 
 export default WORKFLOW_CONFIG;

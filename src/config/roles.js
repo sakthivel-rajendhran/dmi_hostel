@@ -1,6 +1,6 @@
 /**
  * DMI College Hostel Management PWA - Role Configuration
- * Single source of truth for all 6 discrete roles, shell selection, navigation rules and home routes.
+ * Single source of truth for all 5 discrete roles, shell selection, navigation rules and home routes.
  */
 
 import { PERMISSIONS } from "./permissions.js";
@@ -10,7 +10,6 @@ export const ROLES = {
   WARDEN: "warden",
   STAFF: "staff",
   HOD: "hod",
-  PRINCIPAL: "principal",
   CORRESPONDENT: "correspondent",
 };
 
@@ -46,7 +45,7 @@ export const ROLE_CONFIG = {
     loginMethod: "gmail",
     nav: [
       { label: "Dashboard", href: "/warden/dashboard", icon: "LayoutDashboard", permission: PERMISSIONS.PASS_APPROVE },
-      { label: "Approve Passes", href: "/warden/approvals", icon: "CheckSquare", permission: PERMISSIONS.PASS_APPROVE, badgeKey: "pendingApprovals" },
+      { label: "Pending Outpass Clearance Queue", href: "/warden/approvals", icon: "CheckSquare", permission: PERMISSIONS.PASS_APPROVE, badgeKey: "pendingApprovals" },
       { label: "Gate QR Posters", href: "/warden/gate-qr", icon: "QrCode", permission: PERMISSIONS.GATEQR_MANAGE },
       { label: "Gate Passes", href: "/warden/gate-passes", icon: "Ticket", permission: PERMISSIONS.PASS_ISSUE_GATE },
       { label: "Students", href: "/warden/students", icon: "Users", permission: PERMISSIONS.STUDENTS_VIEW_ALL },
@@ -92,25 +91,6 @@ export const ROLE_CONFIG = {
     ],
   },
 
-  [ROLES.PRINCIPAL]: {
-    key: "principal",
-    label: "College Principal",
-    title: "Institutional Oversight",
-    shell: "dashboard",
-    homeRoute: "/principal/overview",
-    accent: "gold-navy",
-    accentColor: "#D97706",
-    loginMethod: "gmail",
-    nav: [
-      { label: "Overview", href: "/principal/overview", icon: "LayoutDashboard", permission: PERMISSIONS.REPORTS_CAMPUS },
-      { label: "Department Insights", href: "/principal/departments", icon: "TrendingUp", permission: PERMISSIONS.REPORTS_CAMPUS },
-      { label: "Late Returns", href: "/principal/late-returns", icon: "AlertTriangle", permission: PERMISSIONS.REPORTS_CAMPUS, badgeKey: "lateCount" },
-      { label: "Security Log", href: "/principal/security-log", icon: "Shield", permission: PERMISSIONS.SECURITY_LOG_VIEW },
-      { label: "Letters", href: "/principal/letters", icon: "FileText", permission: PERMISSIONS.LETTERS_APPROVE, badgeKey: "pendingLetters", featureFlag: "studentLetters" },
-      { label: "Profile", href: "/principal/profile", icon: "User", permission: PERMISSIONS.PROFILE_EDIT_OWN },
-    ],
-  },
-
   [ROLES.CORRESPONDENT]: {
     key: "correspondent",
     label: "Correspondent",
@@ -126,7 +106,6 @@ export const ROLE_CONFIG = {
       { label: "Late Returns", href: "/correspondent/late-returns", icon: "AlertTriangle", permission: PERMISSIONS.REPORTS_CAMPUS, badgeKey: "lateCount" },
       { label: "Security Log", href: "/correspondent/security-log", icon: "Shield", permission: PERMISSIONS.SECURITY_LOG_VIEW },
       { label: "Letters", href: "/correspondent/letters", icon: "FileText", permission: PERMISSIONS.LETTERS_APPROVE, badgeKey: "pendingLetters", featureFlag: "studentLetters" },
-      { label: "Profile", href: "/correspondent/profile", icon: "User", permission: PERMISSIONS.PROFILE_EDIT_OWN },
     ],
   },
 };

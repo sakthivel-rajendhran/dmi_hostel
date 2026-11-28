@@ -13,7 +13,6 @@ import {
   Bell,
   CheckCircle2,
   ExternalLink,
-  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth.js";
 import { ROLES } from "@/config/roles.js";
@@ -52,12 +51,6 @@ export function CommandPalette({ isOpen, onClose }) {
   );
 
   const quickActions = [
-    {
-      label: "Design System Showcase",
-      href: "/design-system",
-      icon: Sparkles,
-      desc: "View complete DMI UI token & component catalog",
-    },
     {
       label: "Sign Out",
       action: () => router.push("/"),

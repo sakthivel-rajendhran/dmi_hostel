@@ -77,20 +77,7 @@ export const MOCK_USERS = [
     bio: "HOD of CSE overseeing academic approvals for hostel residents.",
   },
 
-  // 5. Principal
-  {
-    id: "PRINCIPAL-001",
-    name: "Dr. S. Paul Raj",
-    email: "principal@dmi.edu",
-    gmail: "principal@dmice.ac.in",
-    role: ROLES.PRINCIPAL,
-    designation: "Principal",
-    phone: "+91 98765 00007",
-    avatar: "PR",
-    department: "Administration",
-  },
-
-  // 6. Correspondent
+  // 5. Correspondent
   {
     id: "CORRESPONDENT-001",
     name: "Rev. Fr. J. E. Arul Raj",
@@ -101,19 +88,6 @@ export const MOCK_USERS = [
     phone: "+91 98765 00008",
     avatar: "AR",
     department: "Management",
-  },
-
-  // 7. Security Guard
-  {
-    id: "GATE-001",
-    name: "S. Murugan",
-    email: "security@dmi.edu",
-    gmail: "security@dmice.ac.in",
-    role: ROLES.SECURITY,
-    designation: "Head Security Officer",
-    phone: "+91 98765 00009",
-    avatar: "SM",
-    department: "Campus Security",
   },
 ];
 

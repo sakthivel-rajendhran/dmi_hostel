@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/Button.jsx";
 import { Modal } from "@/components/ui/Modal.jsx";
 import { ProfilePhotoCropModal } from "@/components/profile/ProfilePhotoCropModal.jsx";
 import { validatePhotoFile } from "@/lib/utils/image.js";
+import { calculateProfileCompletion } from "@/lib/utils/profileCompletion.js";
 import { cn } from "@/lib/utils/cn.js";
 
 const BLOOD_GROUPS = ["A+ve", "A-ve", "B+ve", "B-ve", "O+ve", "O-ve", "AB+ve", "AB-ve"];
@@ -77,7 +78,7 @@ function getInitials(rawName) {
 export default function StudentProfilePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const studentId = user?.studentId || user?.id || "CSE-3-001";
+  const studentId = user?.studentId || user?.id;
 
   const { data: profile, isLoading } = useMyProfile(studentId);
   const { data: completeness } = useProfileCompleteness(studentId);
@@ -121,6 +122,7 @@ export default function StudentProfilePage() {
     resolver: zodResolver(studentProfileSchema),
     mode: "onChange",
     defaultValues: {
+      name: "",
       phone: "",
       dob: "",
       bloodGroup: "",
@@ -138,6 +140,7 @@ export default function StudentProfilePage() {
   useEffect(() => {
     if (profile) {
       reset({
+        name: profile.name || user?.name || "",
         phone: profile.phone || "",
         dob: profile.dob || "",
         bloodGroup: profile.bloodGroup || "",
@@ -150,61 +153,34 @@ export default function StudentProfilePage() {
         guardianPhone: profile.guardianPhone || "",
       });
     }
-  }, [profile, reset]);
+  }, [profile, user, reset]);
 
   // Form values watcher for real-time local completion calculation
   const watchedValues = watch();
 
-  // 14-Field Dynamic Completion Calculation
+  // 14-Field Profile Completion Calculation strictly from saved MySQL database record
   const completionStats = useMemo(() => {
-    const photo = Boolean(pendingPhotoPreview || profile?.photo || profile?.photoDataUrl);
-    const department = Boolean(profile?.dept || profile?.department);
-    const year = Boolean(profile?.year);
-    const phone = Boolean(watchedValues.phone && watchedValues.phone.trim().length >= 10);
-    const regNo = Boolean(profile?.regNo || profile?.regNumber);
-    const room = Boolean(profile?.room || profile?.roomNo || profile?.roomNumber || profile?.floor);
-
-    const email = Boolean(profile?.email || profile?.collegeEmail);
-    const dob = Boolean(watchedValues.dob && watchedValues.dob.trim().length > 0);
-    const bloodGroup = Boolean(watchedValues.bloodGroup && watchedValues.bloodGroup.trim().length > 0);
-    const address = Boolean(watchedValues.address && watchedValues.address.trim().length >= 5);
-
-    const fatherName = Boolean(watchedValues.fatherName && watchedValues.fatherName.trim().length >= 2);
-    const fatherPhone = Boolean(watchedValues.fatherPhone && watchedValues.fatherPhone.trim().length >= 10);
-    const motherName = Boolean(watchedValues.motherName && watchedValues.motherName.trim().length >= 2);
-    const motherPhone = Boolean(watchedValues.motherPhone && watchedValues.motherPhone.trim().length >= 10);
-
-    const fields = [
-      { key: "photo", label: "Profile Photograph", group: "Student Information", complete: photo },
-      { key: "department", label: "Department", group: "Student Information", complete: department },
-      { key: "year", label: "Academic Year", group: "Student Information", complete: year },
-      { key: "phone", label: "Phone Number", group: "Student Information", complete: phone, ref: phoneRef },
-      { key: "regNo", label: "Registration Number", group: "Student Information", complete: regNo },
-      { key: "room", label: "Room Number", group: "Student Information", complete: room },
-
-      { key: "email", label: "College Email", group: "Additional Information", complete: email },
-      { key: "dob", label: "Date of Birth", group: "Additional Information", complete: dob, ref: dobRef },
-      { key: "bloodGroup", label: "Blood Group", group: "Additional Information", complete: bloodGroup, ref: bloodGroupRef },
-      { key: "address", label: "Address", group: "Additional Information", complete: address, ref: addressRef },
-
-      { key: "fatherName", label: "Father Name", group: "Parent Details", complete: fatherName, ref: fatherNameRef },
-      { key: "fatherPhone", label: "Father Phone Number", group: "Parent Details", complete: fatherPhone, ref: fatherPhoneRef },
-      { key: "motherName", label: "Mother Name", group: "Parent Details", complete: motherName, ref: motherNameRef },
-      { key: "motherPhone", label: "Mother Phone Number", group: "Parent Details", complete: motherPhone, ref: motherPhoneRef },
-    ];
-
-    const filledCount = fields.filter((f) => f.complete).length;
-    const totalRequired = 14;
-    const percentage = Math.round((filledCount / totalRequired) * 100);
-
-    return {
-      fields,
-      filledCount,
-      totalRequired,
-      percentage,
-      is100Percent: percentage === 100,
+    const stats = calculateProfileCompletion(profile || {});
+    // Connect form field refs for the jump-to-field modal
+    const refMap = {
+      phone: phoneRef,
+      dob: dobRef,
+      bloodGroup: bloodGroupRef,
+      address: addressRef,
+      fatherName: fatherNameRef,
+      fatherPhone: fatherPhoneRef,
+      motherName: motherNameRef,
+      motherPhone: motherPhoneRef,
     };
-  }, [profile, pendingPhotoPreview, watchedValues]);
+    const fieldsWithRefs = stats.fields.map((f) => ({
+      ...f,
+      ref: refMap[f.key] || null,
+    }));
+    return {
+      ...stats,
+      fields: fieldsWithRefs,
+    };
+  }, [profile]);
 
   // Handle Photo File Selection
   const handleFileSelect = async (e) => {
@@ -244,10 +220,28 @@ export default function StudentProfilePage() {
     }
   };
 
-  // Section 1: Save Student Profile
+  // Section 1: Save Student Profile & Name
   const handleSaveProfileSection = async () => {
     try {
       setIsSavingSection("profile");
+
+      const cleanName = watchedValues.name ? String(watchedValues.name).trim() : "";
+      if (!cleanName || cleanName.length < 2) {
+        toast.error("Student name cannot be empty and must be at least 2 characters.");
+        setIsSavingSection(null);
+        return;
+      }
+      if (cleanName.length > 50) {
+        toast.error("Student name cannot exceed 50 characters.");
+        setIsSavingSection(null);
+        return;
+      }
+      if (!/^[a-zA-Z\s.']+$/.test(cleanName)) {
+        toast.error("Student name may only contain letters, spaces, dots, and apostrophes.");
+        setIsSavingSection(null);
+        return;
+      }
+
       let finalPhotoUrl = profile?.photo || profile?.photoDataUrl || null;
 
       if (pendingPhotoFile) {
@@ -269,6 +263,7 @@ export default function StudentProfilePage() {
       }
 
       const patch = {
+        name: cleanName,
         phone: watchedValues.phone?.trim() || "",
         dob: watchedValues.dob || "",
         bloodGroup: watchedValues.bloodGroup || "",
@@ -284,7 +279,7 @@ export default function StudentProfilePage() {
       setPendingPhotoFile(null);
       setPendingPhotoPreview(null);
       setIsEditingProfile(false);
-      toast.success("Student profile updated successfully!");
+      toast.success("Student name and profile updated successfully!");
     } catch (err) {
       toast.error(err.message || "Failed to update profile.");
     } finally {
@@ -298,6 +293,7 @@ export default function StudentProfilePage() {
     if (profile) {
       reset({
         ...watchedValues,
+        name: profile.name || user?.name || "",
         phone: profile.phone || "",
         dob: profile.dob || "",
         bloodGroup: profile.bloodGroup || "",
@@ -376,17 +372,17 @@ export default function StudentProfilePage() {
   };
 
   // Student Info variables
-  const studentName = profile?.name || user?.name || "Rahul Kumar";
+  const studentName = profile?.name || user?.name || "Student";
   const formattedDisplayName = useMemo(
     () => formatStudentDisplayName(studentName),
     [studentName]
   );
-  const department = profile?.dept || profile?.department || "CSE";
+  const department = profile?.dept || profile?.department || "—";
   const academicYear =
     YEAR_DISPLAY_MAP[profile?.year] ||
-    (profile?.year ? `${profile.year}th Year` : "3rd Year");
-  const regNo = profile?.regNo || profile?.regNumber || "310622104045";
-  const roomNo = profile?.roomNumber || profile?.room || profile?.roomNo || "304";
+    (profile?.year ? `${profile.year}th Year` : "—");
+  const regNo = profile?.regNo || profile?.regNumber || "—";
+  const roomNo = profile?.roomNumber || profile?.room || profile?.roomNo || "—";
   const studentUid = profile?.studentId || user?.studentId || studentId;
   const hasPhoto = Boolean(pendingPhotoPreview || profile?.photo || profile?.photoDataUrl);
   const studentInitials = useMemo(() => getInitials(studentName), [studentName]);
@@ -479,17 +475,29 @@ export default function StudentProfilePage() {
             {isEditingProfile ? (
               /* Editable Mode Form */
               <div className="space-y-3">
-                {/* 1. Student Name - TOP */}
-                <div className="flex items-start justify-between gap-2 pb-1.5 border-b border-slate-200/70">
-                  <div>
-                    <h2
-                      data-testid="student-display-name"
-                      className="student-display-name text-base sm:text-lg md:text-xl font-bold text-slate-900 leading-snug break-words"
-                    >
-                      {formattedDisplayName}
-                    </h2>
-                    <span className="text-[10px] font-medium text-slate-500">Editing Profile Information</span>
+                {/* 1. Student Name - EDITABLE INPUT */}
+                <div className="pb-2 border-b border-slate-200/70">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Student Name <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[10px] font-medium text-slate-400">
+                      {(watchedValues.name || "").length}/50
+                    </span>
                   </div>
+                  <input
+                    type="text"
+                    data-testid="student-name-input"
+                    maxLength={50}
+                    {...register("name")}
+                    placeholder="Enter full student name"
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-900 font-bold text-sm sm:text-base focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-xs"
+                  />
+                  {errors.name && (
+                    <p className="text-[10px] font-bold text-red-500 mt-1">
+                      {errors.name.message}
+                    </p>
+                  )}
                 </div>
 
                 {/* 2. Student Details - MIDDLE (Two-column grid) */}
@@ -606,6 +614,20 @@ export default function StudentProfilePage() {
                       ref={dobRef}
                       {...register("dob")}
                       className="w-full px-1.5 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 text-[11px] sm:text-xs font-semibold"
+                    />
+                  </div>
+
+                  {/* Row 5: Gender */}
+                  <div>
+                    <label className="block text-[10px] sm:text-xs font-semibold text-slate-600 mb-0.5">
+                      Gender
+                    </label>
+                    <input
+                      type="text"
+                      value={watchedValues.gender || profile?.gender || "—"}
+                      readOnly
+                      disabled
+                      className="w-full px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100/80 text-slate-700 text-xs sm:text-sm font-semibold cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -747,6 +769,18 @@ export default function StudentProfilePage() {
                       {watchedValues.dob || profile?.dob || "—"}
                     </span>
                   </div>
+
+                  {/* Row 5: Gender */}
+                  {(profile?.gender || watchedValues.gender) && (
+                    <div>
+                      <span className="block text-[10px] sm:text-[11px] font-medium text-slate-500 uppercase tracking-wider">
+                        Gender
+                      </span>
+                      <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                        {watchedValues.gender || profile?.gender}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 3. Address - BOTTOM */}

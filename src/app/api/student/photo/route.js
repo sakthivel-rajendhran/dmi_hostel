@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { query } from "@/lib/db/mysql.js";
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_MIMES = {
@@ -13,7 +14,13 @@ export async function POST(request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
-    const studentId = formData.get("studentId") || "CSE-3-001";
+    const studentId = formData.get("studentId");
+    if (!studentId) {
+      return NextResponse.json(
+        { ok: false, message: "studentId is required." },
+        { status: 400 }
+      );
+    }
 
     if (!file || typeof file === "string") {
       return NextResponse.json(
@@ -53,6 +60,14 @@ export async function POST(request) {
     fs.writeFileSync(filePath, buffer);
 
     const publicUrl = `/uploads/profiles/${filename}`;
+
+    // Persist photo URL in MySQL database
+    try {
+      await query("UPDATE students SET photo_url = ? WHERE student_id = ? OR id = ?", [publicUrl, studentId, studentId]);
+      await query("UPDATE users SET avatar_url = ? WHERE id = ? OR id = (SELECT id FROM students WHERE student_id = ? LIMIT 1)", [publicUrl, studentId, studentId]);
+    } catch (dbErr) {
+      console.warn("Could not sync photo URL to MySQL users/students:", dbErr);
+    }
 
     return NextResponse.json({
       ok: true,

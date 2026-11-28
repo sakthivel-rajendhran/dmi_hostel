@@ -180,7 +180,6 @@ export function useReassignPending() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.passes.all });
       toast.success(`Successfully reassigned ${data.reassignedCount} pending request(s)`);
     },
     onError: (err) => {

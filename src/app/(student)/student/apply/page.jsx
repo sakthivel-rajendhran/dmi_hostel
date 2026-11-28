@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useSafeSearchParams } from "@/hooks/useSafeSearchParams.js";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -22,7 +23,12 @@ import {
   X,
   Sparkles,
   FileText,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  User,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth.js";
 import { useMyProfile, useProfileCompleteness } from "@/hooks/queries/useStudents.js";
 import { useStudentPasses, useApplyPass } from "@/hooks/queries/usePasses.js";
@@ -55,12 +61,13 @@ const DRAFT_STORAGE_KEY = "dmi_student_apply_draft_v2";
 
 export default function StudentApplyPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const urlLetterId = searchParams.get("letterId") || "";
+  const urlEditPassId = searchParams.get("editPassId") || "";
 
   const { user } = useAuth();
   const { policy } = usePolicy();
-  const studentId = user?.studentId || user?.id || "CSE-3-001";
+  const studentId = user?.studentId || user?.id || "";
 
   const { data: profile } = useMyProfile(studentId);
   const { data: completeness } = useProfileCompleteness(studentId);
@@ -71,9 +78,12 @@ export default function StudentApplyPage() {
   const [passType, setPassType] = useState("Local Pass"); // "Local Pass" | "Home Pass"
   const [selectedLetterId, setSelectedLetterId] = useState(urlLetterId);
   const [isEmergency, setIsEmergency] = useState(false);
+  const [showEmergencySection, setShowEmergencySection] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [createdPass, setCreatedPass] = useState(null);
   const [eligibilityWarning, setEligibilityWarning] = useState("");
+  const [editingPass, setEditingPass] = useState(null);
+  const [isLoadingEditPass, setIsLoadingEditPass] = useState(false);
 
   const approvedLetters = (lettersRes?.data || []).filter(
     (l) => (l.studentId === studentId || l.studentId === user?.studentId) && l.status === "approved"
@@ -139,7 +149,7 @@ export default function StudentApplyPage() {
               studentPhone: parsed.formValues.studentPhone || defaultStudentPhone,
               guardianPhone: parsed.formValues.guardianPhone || defaultStudentPhone || "9876543210",
             });
-            toast.info("Draft restored from previous session.");
+            // Draft restored silently without intrusive popup notification
           }
         }
       } catch (e) {
@@ -148,9 +158,72 @@ export default function StudentApplyPage() {
     }
   }, [reset, defaultStudentPhone]);
 
-  // Sync draft to sessionStorage on form changes
+  // Load existing pass if editPassId is provided in URL
   useEffect(() => {
-    if (typeof window !== "undefined" && !createdPass) {
+    if (!urlEditPassId) return;
+
+    const populateFromPass = (p) => {
+      const st = (p.status || "").toLowerCase();
+      if (st !== "pending" && st !== "rejected") {
+        toast.error("Only Pending or Rejected passes can be edited.");
+        router.push("/student/passes");
+        return;
+      }
+      setEditingPass(p);
+      setPassType(p.type || "Local Pass");
+      setIsEmergency(Boolean(p.emergency));
+      if (p.emergency) setShowEmergencySection(true);
+
+      const depDate = p.departureTime || p.fromTime ? new Date(p.departureTime || p.fromTime) : new Date();
+      const retDate = p.expectedReturnTime || p.toTime ? new Date(p.expectedReturnTime || p.toTime) : new Date();
+      const padZero = (n) => String(n).padStart(2, "0");
+      const dStr = depDate.toISOString().split("T")[0];
+      const rStr = retDate.toISOString().split("T")[0];
+      const exitTimeStr = `${padZero(depDate.getHours())}:${padZero(depDate.getMinutes())}`;
+      const returnTimeStr = `${padZero(retDate.getHours())}:${padZero(retDate.getMinutes())}`;
+
+      reset({
+        date: dStr,
+        fromDate: dStr,
+        toDate: rStr,
+        exitTime: exitTimeStr,
+        returnTime: returnTimeStr,
+        destination: p.destination || "",
+        reason: p.reason || "",
+        guardianPhone: p.guardianPhone || defaultStudentPhone || "9876543210",
+        studentPhone: defaultStudentPhone,
+        guardianConsent: true,
+        isEmergency: Boolean(p.emergency),
+      });
+      toast.info(`Editing pass #${p.passNumber || p.id}. Updating will resubmit for approval.`);
+    };
+
+    const match = existingPasses.find((p) => p.id === urlEditPassId || p.passNumber === urlEditPassId);
+    if (match) {
+      populateFromPass(match);
+      return;
+    }
+
+    setIsLoadingEditPass(true);
+    fetch(`/api/outpass/${encodeURIComponent(urlEditPassId)}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.ok && res.data) {
+          populateFromPass(res.data);
+        } else {
+          toast.error("Could not find outpass record.");
+          router.push("/student/passes");
+        }
+      })
+      .catch((err) => {
+        console.error("Error loading pass to edit:", err);
+      })
+      .finally(() => setIsLoadingEditPass(false));
+  }, [urlEditPassId, existingPasses, reset, defaultStudentPhone, router]);
+
+  // Sync draft to sessionStorage on form changes (only when not editing an existing pass)
+  useEffect(() => {
+    if (typeof window !== "undefined" && !createdPass && !urlEditPassId) {
       const subscription = watch((value) => {
         try {
           sessionStorage.setItem(
@@ -165,7 +238,7 @@ export default function StudentApplyPage() {
       });
       return () => subscription.unsubscribe();
     }
-  }, [watch, passType, isEmergency, createdPass]);
+  }, [watch, passType, isEmergency, createdPass, urlEditPassId]);
 
   // Set student phone from authenticated profile when loaded
   useEffect(() => {
@@ -179,18 +252,7 @@ export default function StudentApplyPage() {
   // Check Overdue status
   const hasOverduePass = existingPasses.some((p) => p.status === PASS_STATUSES.OVERDUE);
 
-  // Check Monthly Home Pass limit
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-  const homePassesThisMonth = existingPasses.filter((p) => {
-    const pType = (p.type || "").toLowerCase();
-    if (!pType.includes("home")) return false;
-    if (p.status === PASS_STATUSES.REJECTED || p.status === PASS_STATUSES.CANCELLED) return false;
-    const pDate = new Date(p.fromTime || p.departureTime || p.appliedAt);
-    return pDate.getMonth() === currentMonth && pDate.getFullYear() === currentYear;
-  }).length;
-
-  const isHomePassExhausted = !isLocal && homePassesThisMonth >= (WORKFLOW_CONFIG.maxHomePassesPerMonth || 2);
+  // Both Local Outpass and Home Outpass have UNLIMITED applications (no daily, weekly, or monthly limits)
 
   // Form submit trigger: open confirmation modal first
   const onFormSubmit = async (data) => {
@@ -242,6 +304,41 @@ export default function StudentApplyPage() {
       toIso = `${data.toDate}T${data.returnTime}:00`;
     }
 
+    // When editing an existing pass: call PATCH /api/outpass/[id]
+    if (urlEditPassId) {
+      try {
+        const patchRes = await fetch(`/api/outpass/${encodeURIComponent(urlEditPassId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "edit",
+            destination: data.destination,
+            reason: data.reason,
+            departureTime: fromIso,
+            expectedReturnTime: toIso,
+            guardianPhone: data.guardianPhone || data.studentPhone,
+            emergency: isEmergency,
+            studentName: profile?.name || user?.name || "Student",
+          }),
+        });
+        const patchJson = await patchRes.json();
+        if (patchRes.ok && patchJson.ok) {
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+          }
+          toast.success("Outpass application updated and resubmitted successfully!");
+          router.push("/student/passes");
+          return;
+        } else {
+          toast.error(patchJson.message || "Failed to update outpass.");
+          return;
+        }
+      } catch (err) {
+        toast.error("Could not connect to service to update outpass.");
+        return;
+      }
+    }
+
     try {
       const res = await applyMutation.mutateAsync({
         studentId,
@@ -267,6 +364,7 @@ export default function StudentApplyPage() {
         emergency: isEmergency,
         attachmentName: null,
         letterId: selectedLetterId || null,
+        idempotencyKey: `IDEM-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       });
 
       if (res.ok) {
@@ -489,13 +587,35 @@ export default function StudentApplyPage() {
           </Link>
           <div>
             <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
-              Apply for Outpass
+              {urlEditPassId ? "Edit Outpass Application" : "Apply for Outpass"}
             </h2>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Submit request for advisor & warden clearance
+              {urlEditPassId
+                ? `Editing Pass #${editingPass?.passNumber || editingPass?.id || urlEditPassId} — resubmits for Warden clearance`
+                : "Submit request for advisor & warden clearance"}
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Auto-Populated Non-Editable Student ID / Reg No Card */}
+      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-primary dark:text-indigo-400 flex items-center justify-center font-bold">
+            <User className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+              Student Register Number / ID
+            </span>
+            <span className="font-mono font-extrabold text-slate-800 dark:text-slate-100 text-sm">
+              {profile?.regNo || profile?.studentId || user?.studentId || user?.id || "—"}
+            </span>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+          <ShieldAlert className="w-3 h-3 text-slate-400" /> Non-editable
+        </span>
       </div>
 
       {/* COMPACT OVERDUE BLOCKING BANNER */}
@@ -552,15 +672,6 @@ export default function StudentApplyPage() {
                   setEligibilityWarning("");
                 }}
               />
-
-              {isHomePassExhausted && (
-                <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>
-                    Monthly Home Pass limit reached ({WORKFLOW_CONFIG.maxHomePassesPerMonth || 2} used this month).
-                  </span>
-                </div>
-              )}
             </Card>
 
             {/* Dynamic Timings Card */}
@@ -796,118 +907,181 @@ export default function StudentApplyPage() {
                   <p className="text-[11px] text-red-500 mt-1 font-semibold">{errors.reason.message}</p>
                 )}
 
-                {/* Emergency Medical / Hospital Shortcut */}
-                <div className="mt-3 p-3.5 rounded-xl border border-red-200 bg-red-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                  <div className="text-xs font-bold text-red-700 flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                    <span>In case of Emergency click this &gt;</span>
-                  </div>
+                {/* Conditional Emergency Pass Section */}
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                  {/* Trigger Button: In case of Emergency click this > */}
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsEmergency(true);
-                      setValue("isEmergency", true, { shouldValidate: true, shouldDirty: true });
-                      setValue("reason", "Medical Appointment / Hospital", { shouldValidate: true, shouldDirty: true });
-                      toast.success("Emergency Medical / Urgent Pass enabled!");
-                    }}
+                    onClick={() => setShowEmergencySection((prev) => !prev)}
                     className={cn(
-                      "inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 shadow-sm active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 cursor-pointer",
-                      isEmergency
-                        ? "bg-red-600 text-white ring-2 ring-red-600 shadow-md"
-                        : "bg-red-600 hover:bg-red-700 text-white"
+                      "w-full flex items-center justify-between p-3 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer shadow-xs",
+                      showEmergencySection
+                        ? "bg-rose-100/90 dark:bg-rose-950/70 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200"
+                        : "bg-rose-50 hover:bg-rose-100/80 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300"
                     )}
-                    aria-label="Select Emergency Medical Appointment / Hospital Pass"
+                    aria-expanded={showEmergencySection}
                   >
-                    <span>MEDICAL APPOINTMENT / HOSPITAL</span>
-                    {isEmergency && (
-                      <span className="w-2 h-2 rounded-full bg-white animate-pulse ml-0.5" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Indication of Emergency Selection */}
-                {isEmergency && (
-                  <div className="mt-2.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2 font-semibold min-w-0">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="truncate">Emergency Medical / Urgent Pass is selected</span>
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                      <span>
+                        {showEmergencySection
+                          ? "Hide Emergency Information"
+                          : "In case of Emergency click this >"}
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsEmergency(false);
-                        setValue("isEmergency", false, { shouldValidate: true, shouldDirty: true });
-                        if (watchReason === "Medical Appointment / Hospital") {
-                          setValue("reason", "", { shouldValidate: true, shouldDirty: true });
-                        }
-                      }}
-                      className="text-[11px] underline font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white shrink-0 cursor-pointer"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
+                    <div className="flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                      {showEmergencySection ? (
+                        <>
+                          <span>Hide</span>
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </>
+                      ) : (
+                        <>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </div>
+                  </button>
+
+                  {/* Collapsible Emergency Information (Hidden by default) */}
+                  <AnimatePresence>
+                    {showEmergencySection && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.22, ease: "easeInOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="p-4 rounded-xl border-2 border-rose-300 dark:border-rose-800/80 bg-rose-50/50 dark:bg-rose-950/30 space-y-4 shadow-sm">
+                          {/* Emergency Category */}
+                          <div>
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 mb-1.5">
+                              Emergency Category
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextEmergency = !isEmergency;
+                                setIsEmergency(nextEmergency);
+                                setValue("isEmergency", nextEmergency, { shouldValidate: true, shouldDirty: true });
+                                if (nextEmergency) {
+                                  setValue("reason", "Medical Appointment / Hospital", { shouldValidate: true, shouldDirty: true });
+                                  toast.success("Emergency Medical category applied with Urgent priority");
+                                } else if (watchReason === "Medical Appointment / Hospital") {
+                                  setValue("reason", "", { shouldValidate: true, shouldDirty: true });
+                                }
+                              }}
+                              className={cn(
+                                "w-full sm:w-auto inline-flex items-center justify-between sm:justify-start gap-2.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide transition-all duration-200 shadow-sm cursor-pointer border",
+                                isEmergency
+                                  ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-600 ring-2 ring-rose-400/50 shadow-rose-500/20"
+                                  : "bg-white hover:bg-rose-50 text-rose-700 dark:bg-slate-900 dark:text-rose-200 border-rose-300 dark:border-rose-800"
+                              )}
+                              aria-label="Select Emergency Medical Appointment / Hospital Category"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className={isEmergency ? "text-white" : "text-rose-600 dark:text-rose-400 font-bold"}>
+                                  +
+                                </span>
+                                <span>MEDICAL APPOINTMENT / HOSPITAL</span>
+                              </div>
+                              {isEmergency && (
+                                <span className="px-2 py-0.5 rounded-full bg-white text-rose-700 text-[10px] font-black uppercase">
+                                  Selected
+                                </span>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Additional Information Section */}
+                          <div className="pt-3 border-t border-rose-200/70 dark:border-rose-900/40 space-y-2">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300">
+                              Additional Information
+                            </h4>
+
+                            <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-800/60 flex items-center justify-between gap-3 shadow-xs">
+                              <div className="min-w-0 pr-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-xs text-slate-800 dark:text-slate-100">
+                                    Emergency Medical / Urgent Pass
+                                  </span>
+                                  {isEmergency && (
+                                    <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider animate-pulse shrink-0">
+                                      Urgent
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                                  Flags pass with high priority for urgent warden notification.
+                                </p>
+                              </div>
+
+                              <Switch
+                                checked={isEmergency}
+                                onChange={(checked) => {
+                                  setIsEmergency(checked);
+                                  setValue("isEmergency", checked, { shouldValidate: true, shouldDirty: true });
+                                  if (checked && (!watchReason || watchReason === "")) {
+                                    setValue("reason", "Medical Appointment / Hospital", { shouldValidate: true, shouldDirty: true });
+                                  }
+                                }}
+                                aria-label="Toggle Emergency Medical / Urgent Pass status"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Active Emergency Indicator (shown if section is collapsed while active) */}
+                  {!showEmergencySection && isEmergency && (
+                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 font-semibold min-w-0">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span className="truncate">Active: Emergency Medical / Urgent Pass</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEmergency(false);
+                          setValue("isEmergency", false, { shouldValidate: true, shouldDirty: true });
+                          if (watchReason === "Medical Appointment / Hospital") {
+                            setValue("reason", "", { shouldValidate: true, shouldDirty: true });
+                          }
+                        }}
+                        className="text-[11px] underline font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white shrink-0 cursor-pointer"
+                      >
+                        Deactivate
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Student Number */}
+              {/* Student Number (Strictly Non-Editable, Auto-Populated from Profile) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Student Number
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Student Number
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                    <ShieldAlert className="w-3 h-3 text-slate-400" /> Read-only from profile
+                  </span>
+                </div>
                 <div className="relative">
                   <span className="absolute left-3.5 top-2.5 text-xs font-semibold text-slate-400">
                     +91
                   </span>
                   <input
                     type="tel"
-                    placeholder="9876543210"
-                    {...register("studentPhone")}
-                    onChange={(e) => {
-                      register("studentPhone").onChange(e);
-                      setValue("guardianPhone", e.target.value, { shouldValidate: true });
-                    }}
-                    className="w-full pl-12 pr-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-mono font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    readOnly
+                    disabled
+                    value={watch("studentPhone") || extractTenDigitPhone(profile?.phone || user?.phone) || ""}
+                    className="w-full pl-12 pr-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-600 dark:text-slate-300 cursor-not-allowed select-none opacity-85"
                   />
                 </div>
-                {errors.studentPhone && (
-                  <p className="text-[11px] text-red-500 mt-1 font-semibold">
-                    {errors.studentPhone.message}
-                  </p>
-                )}
-              </div>
-            </Card>
-
-            {/* Additional Information Card */}
-            <Card className="p-4 space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Additional Information
-              </h3>
-
-              {/* Emergency Switch */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
-                      Emergency Medical / Urgent Pass
-                    </span>
-                    {isEmergency && (
-                      <span className="px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-300 text-[10px] font-extrabold uppercase animate-pulse">
-                        Urgent
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Flags pass with high priority for urgent warden notification.
-                  </p>
-                </div>
-                <Switch
-                  checked={isEmergency}
-                  onChange={(checked) => {
-                    setIsEmergency(checked);
-                    setValue("isEmergency", checked, { shouldValidate: true, shouldDirty: true });
-                  }}
-                  aria-label="Toggle emergency status"
-                />
               </div>
             </Card>
           </div>
@@ -977,7 +1151,7 @@ export default function StudentApplyPage() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                      <span>Home passes this month: {homePassesThisMonth} of {WORKFLOW_CONFIG.maxHomePassesPerMonth || 2}</span>
+                      <span>Home Pass: Staff recommendation &amp; Warden approval</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -991,11 +1165,15 @@ export default function StudentApplyPage() {
                   type="submit"
                   variant="primary"
                   size="lg"
-                  disabled={hasOverduePass || isHomePassExhausted || isSubmitting}
+                  disabled={hasOverduePass || isSubmitting}
                   leftIcon={Send}
                   className="w-full font-bold text-xs shadow-md"
                 >
-                  {isSubmitting ? "Submitting..." : "Review & Submit"}
+                  {isSubmitting
+                    ? "Submitting..."
+                    : urlEditPassId
+                    ? "Update & Resubmit Outpass"
+                    : "Review & Submit"}
                 </Button>
               </Card>
             </div>
@@ -1006,7 +1184,7 @@ export default function StudentApplyPage() {
         <div className="lg:hidden fixed bottom-[var(--tabbar-h)] left-0 right-0 z-20 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-4 py-3 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 shadow-lg">
           <div className="min-w-0 flex-1">
             <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block truncate">
-              {passType}
+              {urlEditPassId ? `Edit ${passType}` : passType}
             </span>
             <span className="text-[10px] text-slate-500 truncate block">
               {isLocal ? "Curfew: 9:00 PM" : `${watchFromDate || "Today"} → ${watchToDate || "Return"}`}
@@ -1017,11 +1195,15 @@ export default function StudentApplyPage() {
             type="submit"
             variant="primary"
             size="md"
-            disabled={hasOverduePass || isHomePassExhausted || isSubmitting}
+            disabled={hasOverduePass || isSubmitting}
             leftIcon={Send}
             className="font-bold text-xs px-5 whitespace-nowrap shrink-0 shadow-md"
           >
-            Submit Pass
+            {isSubmitting
+              ? "Saving..."
+              : urlEditPassId
+              ? "Update Pass"
+              : "Submit Pass"}
           </Button>
         </div>
       </form>

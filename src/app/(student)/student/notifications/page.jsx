@@ -16,7 +16,10 @@ import {
   X,
   ArrowLeft,
   ChevronRight,
-  ExternalLink,
+  Megaphone,
+  ShieldCheck,
+  ShieldAlert,
+  FileText,
   RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth.js";
@@ -30,18 +33,23 @@ import { timeAgo, formatDateTime } from "@/lib/utils/format.js";
 import { Card } from "@/components/ui/Card.jsx";
 import { Button } from "@/components/ui/Button.jsx";
 import { Skeleton } from "@/components/ui/Skeleton.jsx";
+import { cn } from "@/lib/utils/cn.js";
+import {
+  getNotificationVisual,
+  getSafeNotificationContent,
+} from "@/lib/utils/notificationIcons.js";
 
 const NOTIF_FILTERS = [
   { id: "all", label: "All" },
   { id: "unread", label: "Unread" },
-  { id: "pass", label: "Passes" },
-  { id: "announcement", label: "Announcements" },
+  { id: "pass", label: "Pass Updates" },
+  { id: "announcement", label: "College Announcements" },
 ];
 
 export default function StudentNotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const studentId = user?.studentId || user?.id || "CSE-3-001";
+  const studentId = user?.studentId || user?.id || "";
 
   const { data: notifications = [], isLoading, refetch } = useMyNotifications(studentId);
   const markReadMutation = useMarkNotificationRead();
@@ -59,7 +67,7 @@ export default function StudentNotificationsPage() {
     } else if (activeFilter === "pass") {
       result = result.filter((n) => n.category === "pass" || !!n.passId || n.type?.startsWith("pass_"));
     } else if (activeFilter === "announcement") {
-      result = result.filter((n) => n.category === "announcement" || n.type === "announcement");
+      result = result.filter((n) => n.category === "announcement" || n.type === "announcement" || (!n.passId && !n.type?.startsWith("pass_")));
     }
 
     return result;
@@ -128,40 +136,28 @@ export default function StudentNotificationsPage() {
     }
   };
 
-  // Notification Icon & Accent Helper
-  const getIconConfig = (type) => {
-    switch (type) {
-      case "pass_approved":
-        return {
-          icon: CheckCircle2,
-          bgClass: "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400",
-        };
-      case "pass_rejected":
-        return {
-          icon: XCircle,
-          bgClass: "bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400",
-        };
-      case "gate_pass_issued":
-        return {
-          icon: QrCode,
-          bgClass: "bg-purple-100 text-purple-600 dark:bg-purple-950/60 dark:text-purple-400",
-        };
-      case "return_reminder":
-        return {
-          icon: Clock,
-          bgClass: "bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400",
-        };
-      case "overdue_alert":
-        return {
-          icon: AlertTriangle,
-          bgClass: "bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400",
-        };
-      default:
-        return {
-          icon: Bell,
-          bgClass: "bg-primary/10 text-primary",
-        };
-    }
+  // Helper to determine notification card styling, badges, and icon
+  const getCardMetadata = (notif) => {
+    const visual = getNotificationVisual(notif);
+    const type = (notif.type || "").toLowerCase();
+    const isAnnouncement = visual.label === "ANNOUNCEMENT" || type === "announcement";
+
+    return {
+      isAnnouncement,
+      categoryTag: isAnnouncement ? "COLLEGE ANNOUNCEMENT" : "PASS UPDATE",
+      tagClass: isAnnouncement
+        ? "bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800"
+        : "bg-indigo-100 dark:bg-indigo-950/70 text-primary dark:text-indigo-300 border-indigo-200 dark:border-indigo-800",
+      borderClass: visual.cardBorder,
+      icon: visual.icon,
+      iconBg: `${visual.bgClass} ${visual.iconColor}`,
+      statusBadge: isAnnouncement
+        ? null
+        : {
+            label: visual.label,
+            class: visual.badgeClass,
+          },
+    };
   };
 
   return (
@@ -213,7 +209,7 @@ export default function StudentNotificationsPage() {
               key={f.id}
               type="button"
               onClick={() => setActiveFilter(f.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
                 isActive
                   ? "bg-primary text-white shadow-sm ring-2 ring-primary/20"
                   : "bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
@@ -228,9 +224,9 @@ export default function StudentNotificationsPage() {
       {/* Notification Groups */}
       {isLoading ? (
         <div className="space-y-3 pt-2">
-          <Skeleton className="h-20 w-full rounded-2xl" />
-          <Skeleton className="h-20 w-full rounded-2xl" />
-          <Skeleton className="h-20 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
         </div>
       ) : filteredNotifs.length === 0 ? (
         /* Empty State */
@@ -264,84 +260,135 @@ export default function StudentNotificationsPage() {
           {Object.entries(groupedNotifications).map(([groupTitle, items]) => {
             if (items.length === 0) return null;
             return (
-              <div key={groupTitle} className="space-y-2">
+              <div key={groupTitle} className="space-y-2.5">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1 block">
-                  {groupTitle}
+                  {groupTitle} ({items.length})
                 </span>
 
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {items.map((notif) => {
-                    const iconConfig = getIconConfig(notif.type);
-                    const IconComponent = iconConfig.icon;
+                    const meta = getCardMetadata(notif);
+                    const IconComponent = meta.icon;
 
                     return (
                       <div
                         key={notif.id}
                         onClick={() => handleNotificationClick(notif)}
-                        className={`p-3.5 rounded-2xl border transition-all duration-200 cursor-pointer relative overflow-hidden flex items-start gap-3 group ${
+                        className={cn(
+                          "p-4 rounded-2xl border transition-all duration-200 cursor-pointer relative overflow-hidden group shadow-xs",
+                          meta.borderClass,
                           !notif.read
-                            ? "bg-indigo-50/50 dark:bg-indigo-950/30 border-indigo-200/80 dark:border-indigo-900/60 shadow-xs"
-                            : "bg-white dark:bg-slate-900/80 border-slate-200/70 dark:border-slate-800 hover:border-primary/40"
-                        }`}
-                      >
-                        {/* Unread Accent Dot */}
-                        {!notif.read && (
-                          <div className="absolute top-3 left-2 w-2 h-2 rounded-full bg-primary" />
+                            ? "bg-indigo-50/40 dark:bg-indigo-950/30 border-l-4 border-l-primary"
+                            : "bg-white dark:bg-slate-900/80"
                         )}
-
-                        {/* Icon */}
-                        <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                            iconConfig.bgClass
-                          } ${!notif.read ? "ml-1.5" : ""}`}
-                        >
-                          <IconComponent className="w-4 h-4" />
-                        </div>
-
-                        {/* Content */}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <h4
-                              className={`text-xs truncate ${
-                                !notif.read
-                                  ? "font-extrabold text-slate-900 dark:text-white"
-                                  : "font-bold text-slate-700 dark:text-slate-300"
-                              }`}
+                      >
+                        {/* Top Metadata Row: Tags, Badges & Timestamp */}
+                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {/* Category Tag */}
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
+                                meta.tagClass
+                              )}
                             >
-                              {notif.title}
-                            </h4>
-                            <span className="text-[10px] text-slate-400 font-medium shrink-0">
-                              {timeAgo(notif.date)}
-                            </span>
-                          </div>
-
-                          <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 mt-0.5 leading-relaxed">
-                            {notif.message}
-                          </p>
-
-                          {/* Footer Info & Deep Link */}
-                          <div className="mt-2 flex items-center justify-between text-[11px]">
-                            <span className="text-slate-400">
-                              {notif.author || "Hostel Office"}
+                              {meta.isAnnouncement && <Megaphone className="w-3 h-3" />}
+                              {meta.categoryTag}
                             </span>
 
-                            {notif.passId && (
-                              <span className="text-primary font-bold inline-flex items-center gap-0.5 group-hover:underline">
-                                View Pass <ChevronRight className="w-3 h-3" />
+                            {/* Status Badge */}
+                            {meta.statusBadge && (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border",
+                                  meta.statusBadge.class
+                                )}
+                              >
+                                {meta.statusBadge.label}
                               </span>
                             )}
                           </div>
+
+                          <div className="flex items-center gap-2">
+                            {/* Timestamp */}
+                            <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium whitespace-nowrap">
+                              {timeAgo(notif.date || notif.createdAt)}
+                            </span>
+
+                            {/* Unread Indicator */}
+                            {!notif.read && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                New
+                              </span>
+                            )}
+
+                            {/* Dismiss Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleDismiss(e, notif.id)}
+                              aria-label="Dismiss notification"
+                              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
-                        {/* Dismiss Button */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleDismiss(e, notif.id)}
-                          aria-label="Dismiss notification"
-                          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
+                        {/* Card Body: Icon & Message Details */}
+                        <div className="flex items-start gap-3.5">
+                          {/* Category Icon */}
+                          <div
+                            className={cn(
+                              "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 mt-0.5",
+                              meta.iconBg
+                            )}
+                          >
+                            <IconComponent className="w-5 h-5" />
+                          </div>
+
+                          {/* Content */}
+                          <div className="min-w-0 flex-1 space-y-1">
+                            {(() => {
+                              const { title, message } = getSafeNotificationContent(notif);
+                              return (
+                                <>
+                                  <h4
+                                    className={cn(
+                                      "text-sm leading-snug",
+                                      !notif.read
+                                        ? "font-extrabold text-slate-900 dark:text-white"
+                                        : "font-bold text-slate-800 dark:text-slate-200"
+                                    )}
+                                  >
+                                    {title}
+                                  </h4>
+
+                                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                    {message}
+                                  </p>
+                                </>
+                              );
+                            })()}
+
+                            {/* Footer Information & Deep Links */}
+                            <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px]">
+                              <span className="text-slate-400 font-medium">
+                                {meta.isAnnouncement
+                                  ? "DMI Hostel Management Circular"
+                                  : notif.passId
+                                  ? `Pass Reference #${notif.passId}`
+                                  : "Hostel Authority Clearance"}
+                              </span>
+
+                              {notif.passId && (
+                                <span className="text-primary dark:text-indigo-400 font-bold inline-flex items-center gap-0.5 group-hover:underline">
+                                  View Pass Details <ChevronRight className="w-3 h-3" />
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}

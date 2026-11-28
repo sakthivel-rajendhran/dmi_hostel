@@ -64,7 +64,7 @@ async function authenticateRequest(request, requestedStudentId = null) {
 
     if ((!userRows || userRows.length === 0) && (!studentRows || studentRows.length === 0)) {
       // Allow valid formatted student ID during registration IF requested matches candidate
-      const isRegistrationId = /^[A-Z]{2,5}-[1-4]-\d{3}$/i.test(cleanId);
+      const isRegistrationId = /^[A-Z&]{2,6}-[1-4]-\d{3}$/i.test(cleanId);
       if (isRegistrationId && (!requestedStudentId || requestedStudentId === cleanId)) {
         return { authenticated: true, studentId: cleanId, isNew: true };
       }

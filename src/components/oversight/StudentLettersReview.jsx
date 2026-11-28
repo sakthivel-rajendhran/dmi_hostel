@@ -42,7 +42,7 @@ import { formatDateTime, formatDate } from "@/lib/utils/format.js";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn.js";
 
-export function StudentLettersReview({ role = "principal" }) {
+export function StudentLettersReview({ role = "correspondent" }) {
   const { user } = useAuth();
   const { policy } = usePolicy();
 
@@ -124,7 +124,7 @@ export function StudentLettersReview({ role = "principal" }) {
     "Document unclear / illegible copy",
     "Exceeds permissible institutional leave policy",
     "Critical laboratory / internal exam scheduled",
-    "Please meet the Principal in person",
+    "Please meet the Correspondent in person",
   ];
 
   const tabs = [
@@ -153,7 +153,7 @@ export function StudentLettersReview({ role = "principal" }) {
               Institutional Letter Queue
             </span>
             <span className="px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-              Policy: {approverMode === "either" ? "Either Principal OR Correspondent" : approverMode === "both" ? "Dual Signoff (Both Required)" : approverMode === "principal_only" ? "Principal Only" : "Correspondent Only"}
+              Policy: Correspondent Approval
             </span>
           </div>
           <h1 className="text-xl font-bold text-text-dark dark:text-white tracking-tight">

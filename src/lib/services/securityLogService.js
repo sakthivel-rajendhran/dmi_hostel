@@ -3,45 +3,48 @@
  * Manages gate movement auditing, security exports, and active out-of-campus tracking.
  */
 
-import { MOCK_SECURITY_LOGS, STORAGE_KEYS, getPersistentMock } from "@/lib/mock/index.js";
 import { simulateLatency, successResponse, paginate } from "./base.js";
 
 /**
  * List gate security logs with filtering and pagination
  * @param {object} [params]
  */
-export async function listSecurityLogs({ page = 1, pageSize = 15, search = "", type = "", isLate } = {}) {
-  await simulateLatency(300, 500);
-  // TODO(BACKEND): replace with Supabase call `supabase.from('security_logs').select('*', { count: 'exact' })...`
-  const logs = getPersistentMock(STORAGE_KEYS.LOGS, MOCK_SECURITY_LOGS);
+export async function listSecurityLogs({ page = 1, pageSize = 100, search = "", type = "", isLate } = {}) {
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams();
+      if (type && type !== "all") params.set("type", type);
+      if (search) params.set("search", search);
 
-  let filtered = [...logs];
-
-  if (search) {
-    const q = search.toLowerCase().trim();
-    filtered = filtered.filter(
-      (l) =>
-        l.studentName.toLowerCase().includes(q) ||
-        l.studentId.toLowerCase().includes(q) ||
-        l.passId.toLowerCase().includes(q) ||
-        l.gate.toLowerCase().includes(q)
-    );
+      const res = await fetch(`/api/security-logs?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          let filtered = [...json.data];
+          if (typeof isLate === "boolean") {
+            filtered = filtered.filter((l) => l.isLate === isLate);
+          }
+          const paginationMeta = paginate(filtered, page, pageSize);
+          return successResponse(paginationMeta.items, {
+            total: paginationMeta.total,
+            page: paginationMeta.page,
+            pageSize: paginationMeta.pageSize,
+            totalPages: paginationMeta.totalPages,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch security logs from API:", e);
+    }
   }
 
-  if (type) {
-    filtered = filtered.filter((l) => l.type === type);
-  }
-
-  if (typeof isLate === "boolean") {
-    filtered = filtered.filter((l) => l.isLate === isLate);
-  }
-
-  const paginationMeta = paginate(filtered, page, pageSize);
+  await simulateLatency(100, 200);
+  const paginationMeta = paginate([], page, pageSize);
   return successResponse(paginationMeta.items, {
-    total: paginationMeta.total,
-    page: paginationMeta.page,
-    pageSize: paginationMeta.pageSize,
-    totalPages: paginationMeta.totalPages,
+    total: 0,
+    page,
+    pageSize,
+    totalPages: 0,
   });
 }
 
@@ -49,21 +52,40 @@ export async function listSecurityLogs({ page = 1, pageSize = 15, search = "", t
  * Returns complete dataset rows ready for Excel/CSV export
  */
 export async function exportSecurityLogs() {
-  await simulateLatency(400, 700);
-  // TODO(BACKEND): replace with Supabase call `supabase.from('security_logs').select('*').csv()`
-  const logs = getPersistentMock(STORAGE_KEYS.LOGS, MOCK_SECURITY_LOGS);
-  return successResponse(logs);
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/security-logs");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          return successResponse(json.data);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not export security logs:", e);
+    }
+  }
+  return successResponse([]);
 }
 
 /**
- * Retrieves list of students currently verified outside campus
+ * Retrieves list of students currently verified outside campus (status === 'out')
  */
 export async function getStillOut() {
-  await simulateLatency(300, 500);
-  // TODO(BACKEND): replace with Supabase RPC `supabase.rpc('get_students_currently_outside')`
-  const logs = getPersistentMock(STORAGE_KEYS.LOGS, MOCK_SECURITY_LOGS);
-  const exits = logs.filter((l) => l.type === "EXIT");
-  return successResponse(exits.slice(0, 12));
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/outpass/list?status=out");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          return successResponse(json.data);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch still out students from API:", e);
+    }
+  }
+  return successResponse([]);
 }
 
 export const securityLogService = {

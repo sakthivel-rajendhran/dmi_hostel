@@ -94,7 +94,7 @@ export function useWithdrawLetter() {
 }
 
 /**
- * Mutation for Principal/Correspondent decision (Endorse / Decline)
+ * Mutation for Correspondent decision (Endorse / Decline)
  * With optimistic update and rollback
  */
 export function useLetterDecision() {

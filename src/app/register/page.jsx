@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   Loader2,
   Info,
+  Clock,
+  ShieldAlert,
 } from "lucide-react";
 
 import { BackgroundScene } from "@/components/login/background-scene";
@@ -72,6 +74,7 @@ export default function RegisterWizardPage() {
     // Step 1: Account
     name: "",
     email: "",
+    gender: "",
     dept: "CSE",
     year: 1,
     phone: "",
@@ -88,7 +91,7 @@ export default function RegisterWizardPage() {
   });
 
   // Dynamic preview Student ID
-  const [previewId, setPreviewId] = useState("CSE-1-001");
+  const [previewId, setPreviewId] = useState("CSE0101");
 
   // 1. Restore draft on mount
   useEffect(() => {
@@ -101,7 +104,7 @@ export default function RegisterWizardPage() {
           parsed.photoDataUrl = parsed.photoDataUrl.dataUrl || parsed.photoDataUrl.url || null;
         }
         setFormData((prev) => ({ ...prev, ...parsed }));
-        toast.info("Restored registration draft", { duration: 2500 });
+        // Draft restored silently without popup notification
       }
     } catch (e) {
       console.warn("Could not load draft:", e);
@@ -138,7 +141,8 @@ export default function RegisterWizardPage() {
       });
       setPreviewId(id);
     } catch {
-      setPreviewId(`${formData.dept}-${formData.year}-001`);
+      const yr = String(formData.year || 1).padStart(2, "0");
+      setPreviewId(`${formData.dept}${yr}01`);
     }
   }, [formData.dept, formData.year]);
 
@@ -177,6 +181,7 @@ export default function RegisterWizardPage() {
       dept: formData.dept,
       year: formData.year,
       phone: formData.phone,
+      gender: formData.gender,
     });
 
     if (!res.success) {
@@ -291,6 +296,7 @@ export default function RegisterWizardPage() {
       const payload = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
+        gender: formData.gender,
         dept: formData.dept,
         year: Number(formData.year),
         phone: formData.phone.trim(),
@@ -338,7 +344,7 @@ export default function RegisterWizardPage() {
       case 3:
         return "Review & Confirm";
       case 4:
-        return "Account Ready!";
+        return "Registration Submitted Successfully";
       default:
         return "Student Registration";
     }
@@ -353,9 +359,9 @@ export default function RegisterWizardPage() {
       case 2:
         return "Step 3 of 4: JPG, PNG, WebP • Maximum 15 MB • Minimum 200 × 200 px";
       case 3:
-        return "Step 4 of 4: Verify your details before generating your Student ID";
+        return "Step 4 of 4: Verify your details before submitting registration";
       case 4:
-        return "Your credentials are generated. Use your Student ID to log in.";
+        return "Your account is awaiting approval from the Hostel Warden. You will be able to log in after your registration has been approved.";
       default:
         return "";
     }
@@ -499,6 +505,49 @@ export default function RegisterWizardPage() {
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   {errors.phone && <p className="text-[11px] text-rose-500 mt-1">{errors.phone}</p>}
+                </div>
+
+                {/* Gender Field */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                    Gender <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleChange("gender", "Male")}
+                      className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
+                        formData.gender === "Male"
+                          ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-400 dark:text-indigo-300 ring-2 ring-indigo-500/20 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
+                      }`}
+                    >
+                      <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                        formData.gender === "Male" ? "border-indigo-600 bg-indigo-600" : "border-slate-300 dark:border-slate-600"
+                      }`}>
+                        {formData.gender === "Male" && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </span>
+                      <span>Male</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleChange("gender", "Female")}
+                      className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
+                        formData.gender === "Female"
+                          ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-400 dark:text-indigo-300 ring-2 ring-indigo-500/20 shadow-xs"
+                          : "bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
+                      }`}
+                    >
+                      <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                        formData.gender === "Female" ? "border-indigo-600 bg-indigo-600" : "border-slate-300 dark:border-slate-600"
+                      }`}>
+                        {formData.gender === "Female" && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </span>
+                      <span>Female</span>
+                    </button>
+                  </div>
+                  {errors.gender && <p className="text-[11px] text-rose-500 mt-1">{errors.gender}</p>}
                 </div>
 
                 {/* Dept and Year Grid */}
@@ -814,7 +863,7 @@ export default function RegisterWizardPage() {
                           {formData.name}
                         </span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                          {formData.email} • Room {formData.roomNo || "N/A"} • {formData.phone}
+                          {formData.email} • {formData.gender || "Gender"} • Room {formData.roomNo || "N/A"} • {formData.phone}
                         </span>
                       </div>
                     </div>
@@ -935,42 +984,51 @@ export default function RegisterWizardPage() {
               </motion.div>
             )}
 
-            {/* ----------------- STEP 5: SUCCESS STATE ----------------- */}
+            {/* ----------------- STEP 5: REGISTRATION CONFIRMATION SCREEN ----------------- */}
             {currentStep === 4 && submissionSuccess && (
               <motion.div
                 key="step5"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-3 text-center py-1 flex flex-col justify-between h-full"
+                className="space-y-3.5 text-center py-2 flex flex-col justify-between h-full"
               >
                 <div className="flex flex-col items-center">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-2">
-                    <CheckCircle2 className="w-7 h-7" />
+                  <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/60 border-2 border-amber-400 dark:border-amber-600 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-2.5 shadow-sm">
+                    <Clock className="w-8 h-8 animate-pulse" />
                   </div>
 
-                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                    Registration Completed!
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                    Registration Submitted Successfully
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mt-0.5">
-                    Your resident profile has been enrolled in the DMI Campus Hostel directory.
+                  <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-sm mt-1 leading-relaxed">
+                    Your account is awaiting approval from the Hostel Warden. You will be able to log in after your registration has been approved.
                   </p>
                 </div>
 
-                {/* ID Highlight Box */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-500/10 via-purple-500/10 to-transparent border border-indigo-500/30 text-left space-y-2">
+                {/* Status Indicator Banner */}
+                <div className="p-3 rounded-2xl bg-amber-500/10 border-2 border-amber-500/30 flex items-center justify-center gap-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                  </span>
+                  <span className="text-xs sm:text-sm font-black tracking-wider uppercase text-amber-800 dark:text-amber-300">
+                    PENDING WARDEN APPROVAL
+                  </span>
+                </div>
+
+                {/* Student Details Summary Box */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-left space-y-2 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                      Your Official Student ID:
-                    </span>
+                    <span className="text-slate-500 font-medium">Assigned Student ID:</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-base font-black text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-900 px-3 py-1 rounded-xl border border-indigo-300 dark:border-indigo-700 shadow-sm">
+                      <span className="font-mono text-sm font-black text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-800 px-2.5 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800 shadow-xs">
                         {submissionSuccess.studentId}
                       </span>
                       <button
                         type="button"
                         onClick={() => handleCopyId(submissionSuccess.studentId)}
-                        className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 transition"
+                        className="p-1 rounded-md bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 transition"
                         title="Copy Student ID"
                       >
                         {copiedId ? (
@@ -982,39 +1040,44 @@ export default function RegisterWizardPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-indigo-200/40 dark:border-indigo-800/40 text-xs">
-                    <span className="text-slate-500">Default Password:</span>
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                    <span className="text-slate-500">Register Number:</span>
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {submissionSuccess.defaultPassword}
+                      {submissionSuccess.regNo}
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1 text-xs">
-                    <span className="text-slate-500">Allocation Status:</span>
-                    <span
-                      className={`font-semibold px-2 py-0.5 rounded-full text-[10px] ${submissionSuccess.mode === "student_enters"
-                        ? "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300"
-                        : "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300"
-                        }`}
-                    >
-                      {submissionSuccess.mode === "student_enters"
-                        ? "Pending Warden Verification"
-                        : "Awaiting Warden Allocation"}
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-slate-500">Student Name:</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">
+                      {submissionSuccess.name}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-slate-500">Department & Year:</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-300">
+                      {submissionSuccess.department} • Year {submissionSuccess.year}
                     </span>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>Note: On your first login you will be prompted to choose a permanent secure password.</span>
+                {/* Important Notice */}
+                <div className="p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-[11px] text-amber-800 dark:text-amber-300/90 text-left flex items-start gap-2">
+                  <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+                  <span>
+                    Your credentials have been securely stored in MySQL. You cannot log in until your registration is approved by the Hostel Warden.
+                  </span>
                 </div>
 
-                {/* Login Button */}
+                {/* Return to Login Button */}
                 <button
                   type="button"
                   onClick={() => router.push("/")}
-                  className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md transition"
+                  className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md hover:shadow-indigo-500/20 transition flex items-center justify-center gap-2"
                 >
-                  Proceed to Login
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Return to Login</span>
                 </button>
               </motion.div>
             )}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSafeSearchParams } from "@/hooks/useSafeSearchParams.js";
 import {
   BarChart,
   Bar,
@@ -46,8 +46,8 @@ import { formatDateTime, formatDate } from "@/lib/utils/format.js";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn.js";
 
-export function LateReturnsAudit({ role = "principal" }) {
-  const searchParams = useSearchParams();
+export function LateReturnsAudit({ role = "correspondent" }) {
+  const searchParams = useSafeSearchParams();
   const initialTab = searchParams.get("tab") || "overdue_now";
 
   const [activeTab, setActiveTab] = useState(initialTab);

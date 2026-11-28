@@ -11,11 +11,12 @@ import {
   ArrowRight,
   ChevronRight,
   MapPin,
+  AlertTriangle,
+  CheckCheck,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth.js";
 import { useStudentPasses, useMyActivePass } from "@/hooks/queries/usePasses.js";
 import { useMyProfile } from "@/hooks/queries/useStudents.js";
-import { useCountdownTimer } from "@/hooks/useCountdownTimer.js";
 import { StatusChip } from "@/components/ui/StatusChip.jsx";
 import { Button } from "@/components/ui/Button.jsx";
 import { Card } from "@/components/ui/Card.jsx";
@@ -25,6 +26,7 @@ import { ProfileCompletenessBanner } from "@/components/student/ProfileCompleten
 import StudentGreetingCard from "@/components/student/StudentGreetingCard.jsx";
 import { formatDateTime } from "@/lib/utils/format.js";
 import { PASS_STATUSES } from "@/config/status.js";
+import { getMovementStatus, MOVEMENT_STATES } from "@/lib/utils/movementStatus.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/hooks/queries/queryKeys.js";
 import { cn } from "@/lib/utils/cn.js";
@@ -32,37 +34,36 @@ import { cn } from "@/lib/utils/cn.js";
 /* ─────────────────────────── Active Pass Card ─────────────────────────── */
 
 function ActivePassCard({ pass }) {
-  const { isOverdue, text: countdownText } = useCountdownTimer(
-    pass.expectedReturnTime || pass.toTime
-  );
-
+  const movementStatus = pass.movementStatus || getMovementStatus(pass);
   return (
-    <div
-      className={cn(
-        "relative overflow-hidden rounded-2xl border-2 transition-all duration-300",
-        isOverdue
-          ? "border-red-400 bg-gradient-to-br from-red-50 via-white to-rose-50 dark:border-red-500/50 dark:from-red-950/30 dark:via-slate-900 dark:to-red-950/20"
-          : "border-primary/30 bg-gradient-to-br from-indigo-50/80 via-white to-blue-50/60 dark:border-indigo-500/30 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/30"
-      )}
-    >
-      {/* Accent strip */}
+    <div className="relative overflow-hidden rounded-2xl border border-blue-200/80 dark:border-blue-900/40 bg-white/95 dark:bg-slate-900/95 shadow-sm transition-all duration-300">
+      {/* College Main Gate Photograph Layer - Enhanced Visibility */}
       <div
-        className={cn(
-          "absolute top-0 left-0 right-0 h-1",
-          isOverdue
-            ? "bg-red-500 animate-pulse"
-            : "bg-gradient-to-r from-primary to-indigo-500"
-        )}
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-38 dark:opacity-42 pointer-events-none"
+        style={{ backgroundImage: "url('/images/college-gate.jpg')" }}
+        aria-hidden="true"
       />
 
-      <div className="p-4 sm:p-5 space-y-3">
+      {/* Subtle Navy-Blue & Light Overlay (Preserves strong text contrast & blue dashboard identity) */}
+      <div
+        className="absolute inset-0 bg-gradient-to-br from-indigo-50/65 via-white/70 to-blue-50/55 dark:from-slate-900/80 dark:via-slate-900/75 dark:to-indigo-950/70 pointer-events-none"
+        aria-hidden="true"
+      />
+
+      {/* Elegant Top Accent Strip */}
+      <div
+        className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-blue-500 to-indigo-500"
+        aria-hidden="true"
+      />
+
+      <div className="relative z-10 p-4 sm:p-5 space-y-3">
         {/* Header: Pass Number + Type + Status */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-mono text-[11px] font-bold text-slate-500 dark:text-slate-400">
               {pass.passNumber || pass.id}
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-semibold text-slate-600 dark:text-slate-300">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100/90 dark:bg-slate-800 font-semibold text-slate-600 dark:text-slate-300 backdrop-blur-xs">
               {pass.type}
             </span>
           </div>
@@ -83,12 +84,12 @@ function ActivePassCard({ pass }) {
         </div>
 
         {/* Timings */}
-        <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 text-xs">
+        <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-white/75 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 backdrop-blur-xs text-xs">
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block">
               Exit Time
             </span>
-            <span className="font-medium text-slate-700 dark:text-slate-200">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
               {formatDateTime(pass.departureTime || pass.fromTime, "dd MMM, hh:mm a")}
             </span>
           </div>
@@ -96,36 +97,29 @@ function ActivePassCard({ pass }) {
             <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block">
               Expected Return
             </span>
-            <span className="font-medium text-slate-700 dark:text-slate-200">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
               {formatDateTime(pass.expectedReturnTime || pass.toTime, "dd MMM, hh:mm a")}
             </span>
           </div>
         </div>
 
-        {/* Live Countdown */}
-        <div
-          className={cn(
-            "flex items-center justify-between p-2.5 rounded-xl font-mono text-xs font-bold",
-            isOverdue
-              ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
-              : "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <Clock className={cn("w-4 h-4", isOverdue ? "text-red-600" : "text-indigo-600")} />
-            <span>{countdownText}</span>
-          </div>
-          <span className="text-[10px] uppercase tracking-wider font-sans font-bold">
-            {isOverdue ? "Curfew Exceeded" : "Until Curfew"}
-          </span>
-        </div>
-
-        {/* Actions */}
+        {/* Actions - State-Aware Gate Scanning Actions */}
         <div className="flex gap-2 pt-1">
-          {["gate_pass_issued", "out", "overdue"].includes(pass.status) ? (
+          {movementStatus === MOVEMENT_STATES.RETURNED ? (
+            <div className="flex-1 py-1.5 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-extrabold text-center flex items-center justify-center gap-1.5">
+              <CheckCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>PASS COMPLETED</span>
+            </div>
+          ) : movementStatus === MOVEMENT_STATES.OUTSIDE_CAMPUS ? (
             <Link href="/student/scan" className="flex-1">
-              <Button variant="primary" size="sm" className="w-full text-xs font-bold" iconLeft={QrCode}>
-                {pass.status === "gate_pass_issued" ? "Scan to EXIT" : "Scan to RE-ENTER"}
+              <Button variant="primary" size="sm" className="w-full text-xs font-bold shadow-xs cursor-pointer" iconLeft={QrCode}>
+                Scan at Gate to RE-ENTER
+              </Button>
+            </Link>
+          ) : movementStatus === MOVEMENT_STATES.NOT_EXITED ? (
+            <Link href="/student/scan" className="flex-1">
+              <Button variant="primary" size="sm" className="w-full text-xs font-bold shadow-xs cursor-pointer" iconLeft={QrCode}>
+                Scan to OUT
               </Button>
             </Link>
           ) : (
@@ -153,12 +147,12 @@ export default function StudentDashboardPage() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const studentId = user?.studentId || user?.id || "CSE-3-001";
+  const studentId = user?.studentId || user?.id;
 
   /* ── Data Hooks ── */
   const { data: profile } = useMyProfile(studentId);
-  const { data: passes = [], isLoading: passesLoading } = useStudentPasses(studentId);
-  const { data: activePass, isLoading: activeLoading } = useMyActivePass(studentId);
+  const { data: passes = [], isLoading: passesLoading, refetch: refetchPasses } = useStudentPasses(studentId);
+  const { data: activePass, isLoading: activeLoading, refetch: refetchActive } = useMyActivePass(studentId);
 
   /* ── Computed Values ── */
   const currentHour = new Date().getHours();
@@ -193,7 +187,8 @@ export default function StudentDashboardPage() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.passes.all }),
+      refetchPasses(),
+      refetchActive(),
       queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.students.all }),
     ]);
