@@ -10,12 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
-  role ENUM('student', 'warden', 'staff', 'hod', 'principal', 'correspondent') NOT NULL,
+  role ENUM('student', 'warden', 'staff', 'hod', 'correspondent') NOT NULL,
   name VARCHAR(100) NOT NULL,
   phone VARCHAR(25),
   avatar_url TEXT,
   must_change_password BOOLEAN DEFAULT FALSE,
   status ENUM('Active', 'Password change pending', 'Disabled') DEFAULT 'Active',
+  account_status ENUM('PENDING_WARDEN', 'PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING_WARDEN',
   disable_reason TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -49,11 +50,17 @@ CREATE TABLE IF NOT EXISTS students (
   guardian_name VARCHAR(100),
   guardian_phone VARCHAR(25),
   guardian_relation VARCHAR(50),
+  father_name VARCHAR(100),
+  father_phone VARCHAR(25),
+  mother_name VARCHAR(100),
+  mother_phone VARCHAR(25),
   home_address TEXT,
   blood_group VARCHAR(10),
+  dob VARCHAR(20),
   photo_url TEXT,
   profile_completed BOOLEAN DEFAULT FALSE,
   allocation_status ENUM('waiting_for_warden', 'accepted', 'rejected') DEFAULT 'waiting_for_warden',
+  account_status ENUM('PENDING_WARDEN', 'PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING_WARDEN',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id) REFERENCES users(id) ON DELETE CASCADE
@@ -165,4 +172,33 @@ CREATE TABLE IF NOT EXISTS allocation_decisions (
   INDEX idx_alloc_student (student_id),
   INDEX idx_alloc_warden (warden_id),
   INDEX idx_alloc_decided_at (decided_at)
-) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+) ENGINE=InnoDB;
+
+-- 12. Student Registration Approvals
+CREATE TABLE IF NOT EXISTS student_registration_approvals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  warden_id VARCHAR(64) NOT NULL,
+  decision ENUM('APPROVED', 'REJECTED') NOT NULL,
+  reason TEXT NULL,
+  decided_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_student_reg (student_id),
+  INDEX idx_warden_reg (warden_id),
+  INDEX idx_decided_reg (decided_at)
+) ENGINE=InnoDB;
+
+-- 13. Gate Dynamic Tokens Table
+CREATE TABLE IF NOT EXISTS gate_tokens (
+  id VARCHAR(64) PRIMARY KEY,
+  gate_id VARCHAR(32) NOT NULL DEFAULT 'MAIN',
+  token_string VARCHAR(255) NOT NULL,
+  token_hash VARCHAR(64) NOT NULL UNIQUE,
+  nonce VARCHAR(32) NOT NULL UNIQUE,
+  issued_at DATETIME NOT NULL,
+  expires_at DATETIME NOT NULL,
+  status ENUM('ACTIVE', 'EXPIRED', 'REVOKED') NOT NULL DEFAULT 'ACTIVE',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_gate_active (gate_id, status, expires_at),
+  INDEX idx_expires_at (expires_at)
+) ENGINE=InnoDB;

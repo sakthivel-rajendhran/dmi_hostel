@@ -35,7 +35,7 @@ import { formatDateTime } from "@/lib/utils/format.js";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn.js";
 
-export function OversightSecurityLog({ role = "principal" }) {
+export function OversightSecurityLog({ role = "correspondent" }) {
   const [activeTab, setActiveTab] = useState("all"); // 'all' | 'local' | 'home'
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all"); // 'all' | 'EXIT' | 'ENTRY'

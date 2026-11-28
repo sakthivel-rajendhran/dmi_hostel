@@ -1,10 +1,9 @@
 /**
  * Notification Service
- * Manages announcements, circulars and resident alerts.
+ * Manages announcements, circulars and resident alerts backed by MySQL API.
  */
 
-import { MOCK_NOTIFICATIONS, STORAGE_KEYS, getPersistentMock, setPersistentMock } from "@/lib/mock/index.js";
-import { simulateLatency, successResponse } from "./base.js";
+import { successResponse, errorResponse } from "./base.js";
 
 /**
  * List notifications
@@ -14,28 +13,26 @@ import { simulateLatency, successResponse } from "./base.js";
  * @param {string} [params.category=""]
  */
 export async function listNotifications({ unreadOnly = false, studentId = "", category = "" } = {}) {
-  await simulateLatency(150, 250);
-  // TODO(BACKEND): replace with Supabase call `supabase.from('notifications').select('*').order('created_at', { ascending: false })`
-  const notifs = getPersistentMock(STORAGE_KEYS.NOTIFS, MOCK_NOTIFICATIONS);
+  if (typeof window !== "undefined") {
+    try {
+      const sp = new URLSearchParams();
+      if (studentId) sp.set("studentId", studentId);
+      if (unreadOnly) sp.set("unreadOnly", "true");
+      if (category && category !== "all") sp.set("category", category);
 
-  let filtered = [...notifs];
-
-  if (studentId) {
-    filtered = filtered.filter((n) => !n.studentId || n.studentId === studentId || n.targetRole === "all" || n.targetRole === "student");
+      const res = await fetch(`/api/notifications?${sp.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && Array.isArray(json.data)) {
+          return successResponse(json.data);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch notifications from MySQL API:", e);
+    }
   }
 
-  if (category && category !== "all") {
-    filtered = filtered.filter((n) => n.category === category || n.type === category);
-  }
-
-  if (unreadOnly) {
-    filtered = filtered.filter((n) => !n.read);
-  }
-
-  // Sort newest first
-  filtered.sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
-
-  return successResponse(filtered);
+  return successResponse([]);
 }
 
 /**
@@ -43,9 +40,21 @@ export async function listNotifications({ unreadOnly = false, studentId = "", ca
  * @param {string} notifId
  */
 export async function markNotificationRead(notifId) {
-  const notifs = getPersistentMock(STORAGE_KEYS.NOTIFS, MOCK_NOTIFICATIONS);
-  const updated = notifs.map((n) => (n.id === notifId ? { ...n, read: true } : n));
-  setPersistentMock(STORAGE_KEYS.NOTIFS, updated);
+  if (typeof window !== "undefined" && notifId) {
+    try {
+      const res = await fetch(`/api/notifications/${encodeURIComponent(notifId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead: true }),
+      });
+      if (res.ok) {
+        return successResponse({ id: notifId, read: true });
+      }
+    } catch (e) {
+      console.warn("Could not mark notification read in MySQL API:", e);
+    }
+  }
+
   return successResponse({ id: notifId, read: true });
 }
 
@@ -56,15 +65,23 @@ export const markRead = markNotificationRead;
  * @param {string} [studentId]
  */
 export async function markAllNotificationsRead(studentId = "") {
-  const notifs = getPersistentMock(STORAGE_KEYS.NOTIFS, MOCK_NOTIFICATIONS);
-  const updated = notifs.map((n) => {
-    if (!studentId || !n.studentId || n.studentId === studentId) {
-      return { ...n, read: true };
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/notifications/all", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true, studentId }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return successResponse(json);
+      }
+    } catch (e) {
+      console.warn("Could not mark all notifications read in MySQL API:", e);
     }
-    return n;
-  });
-  setPersistentMock(STORAGE_KEYS.NOTIFS, updated);
-  return successResponse({ count: updated.length });
+  }
+
+  return successResponse({ ok: true });
 }
 
 export const markAllRead = markAllNotificationsRead;
@@ -74,30 +91,46 @@ export const markAllRead = markAllNotificationsRead;
  * @param {string} notifId
  */
 export async function dismissNotification(notifId) {
-  const notifs = getPersistentMock(STORAGE_KEYS.NOTIFS, MOCK_NOTIFICATIONS);
-  const updated = notifs.filter((n) => n.id !== notifId);
-  setPersistentMock(STORAGE_KEYS.NOTIFS, updated);
+  if (typeof window !== "undefined" && notifId) {
+    try {
+      const res = await fetch(`/api/notifications/${encodeURIComponent(notifId)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        return successResponse({ id: notifId, dismissed: true });
+      }
+    } catch (e) {
+      console.warn("Could not dismiss notification in MySQL API:", e);
+    }
+  }
+
   return successResponse({ id: notifId, dismissed: true });
 }
 
 export const dismiss = dismissNotification;
 
 /**
- * Broadcast an announcement or circular
+ * Broadcast an announcement or circular / send notification
  * @param {object} notifData
  */
 export async function sendNotification(notifData) {
-  await simulateLatency(300, 500);
-  const notifs = getPersistentMock(STORAGE_KEYS.NOTIFS, MOCK_NOTIFICATIONS);
-  const newNotif = {
-    ...notifData,
-    id: `NOTIF-${String(notifs.length + 1).padStart(2, "0")}`,
-    date: new Date().toISOString(),
-    read: false,
-  };
-  const updated = [newNotif, ...notifs];
-  setPersistentMock(STORAGE_KEYS.NOTIFS, updated);
-  return successResponse(newNotif);
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(notifData),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return successResponse(json.data);
+      }
+    } catch (e) {
+      console.warn("Could not post notification to MySQL API:", e);
+    }
+  }
+
+  return errorResponse("FAILED", "Could not send notification.");
 }
 
 export const createNotification = sendNotification;

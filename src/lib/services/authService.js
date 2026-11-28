@@ -37,11 +37,11 @@ export async function login({ role, identifier, password }) {
       if (res.ok && json.ok && json.data) {
         localStorage.setItem(SESSION_KEY, JSON.stringify(json.data));
         return successResponse(json.data);
-      } else if (res.status === 401 || res.status === 403) {
-        return errorResponse(json.code || "AUTH_FAILED", json.message || "Invalid credentials.");
       }
+      return errorResponse(json.code || "AUTH_FAILED", json.message || "Invalid credentials.");
     } catch (e) {
-      console.warn("MySQL login failed, checking fallback:", e);
+      console.warn("MySQL login request error:", e);
+      return errorResponse("NETWORK_ERROR", "Could not connect to authentication service.");
     }
   }
 
@@ -87,19 +87,9 @@ export async function login({ role, identifier, password }) {
     }
   }
 
-  // Fallback demo matching
-  if (role === "student" || cleanId.includes("stu") || cleanId.includes("cse")) {
-    const studentUser = users.find((u) => u.role === "student") || MOCK_USERS[0];
-    const session = {
-      user: studentUser,
-      role: "student",
-      token: `mock-jwt-student-${Date.now()}`,
-      loginTime: new Date().toISOString(),
-    };
-    if (typeof window !== "undefined") {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    }
-    return successResponse(session);
+  // In strict security mode, non-existent student accounts are rejected
+  if (role === "student") {
+    return errorResponse("AUTH_FAILED", "Account not found or not approved.");
   }
 
   const wardenUser = users.find((u) => u.role === "warden") || MOCK_USERS[1];
@@ -116,38 +106,58 @@ export async function login({ role, identifier, password }) {
 }
 
 /**
- * Changes student or staff password
+ * Changes student or staff password backed by MySQL API
  * @param {string} currentPassword
  * @param {string} newPassword
+ * @param {string} [confirmPassword]
  */
-export async function changePassword(currentPassword, newPassword) {
-  await simulateLatency(400, 700);
-  // TODO(BACKEND): replace with Supabase call `supabase.auth.updateUser({ password: newPassword })`
-  if (!newPassword || newPassword.length < 6) {
-    return errorResponse("INVALID_PASSWORD", "Password must be at least 6 characters.");
+export async function changePassword(currentPassword, newPassword, confirmPassword = "") {
+  if (!newPassword || newPassword.length < 8) {
+    return errorResponse("INVALID_PASSWORD", "Password must be at least 8 characters long.");
   }
 
   const session = getCurrentSession();
-  if (session?.user) {
-    const allUsers = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
-    const idx = allUsers.findIndex(
-      (u) => u.id === session.user.id || u.gmail === session.user.gmail || u.email === session.user.email
-    );
-    if (idx !== -1) {
-      allUsers[idx].password = newPassword;
-      allUsers[idx].mustChangePassword = false;
-      allUsers[idx].tempPassword = null;
-      allUsers[idx].status = "Active";
-      setPersistentMock(STORAGE_KEYS.USERS, allUsers);
-    }
-    session.mustChangePassword = false;
-    session.user.mustChangePassword = false;
-    if (typeof window !== "undefined") {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  const studentId = session?.user?.studentId || session?.user?.id || session?.user?.email;
+
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-student-id": studentId || "",
+        },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword: confirmPassword || newPassword,
+          studentId,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.ok) {
+        return errorResponse(data.code || "UPDATE_FAILED", data.message || "Failed to update password.");
+      }
+
+      // Update session in localStorage
+      if (session?.user) {
+        session.mustChangePassword = false;
+        session.user.mustChangePassword = false;
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new CustomEvent("dmi_session_updated", { detail: session }));
+      }
+
+      return successResponse(data);
+    } catch (err) {
+      console.error("changePassword API error:", err);
+      return errorResponse("NETWORK_ERROR", "Could not connect to authentication service.");
     }
   }
 
-  return successResponse({ updated: true, timestamp: new Date().toISOString() });
+  return successResponse({ updated: true });
 }
 
 /**

@@ -1,22 +1,13 @@
 /**
- * Base service utilities for latency simulation and standardized envelope responses.
+ * Production base service utilities and standardized envelope responses.
  */
-
-import { STORAGE_KEYS } from "@/lib/mock/index.js";
 
 /**
- * Simulates network latency (400-800ms) if enabled in dev panel
- * @param {number} [min=400]
- * @param {number} [max=800]
+ * Production no-op for network latency simulation
  * @returns {Promise<void>}
  */
-export async function simulateLatency(min = 400, max = 800) {
-  if (typeof window === "undefined") return;
-  const isEnabled = localStorage.getItem(STORAGE_KEYS.LATENCY) !== "false";
-  if (!isEnabled) return;
-
-  const ms = Math.floor(min + Math.random() * (max - min));
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export async function simulateLatency() {
+  return;
 }
 
 /**

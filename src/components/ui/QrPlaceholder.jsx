@@ -6,7 +6,7 @@ import { QrCode, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils/cn.js";
 
 export function QrPlaceholder({
-  value = "DMI-MOCK-PASS-000",
+  value = "DMI-GATE-PASS-SAMPLE",
   size = 180,
   label = "Scan at Security Kiosk",
   className = "",

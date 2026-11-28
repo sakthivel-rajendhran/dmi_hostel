@@ -13,6 +13,7 @@ import { getCurrentSession } from "./authService.js";
 import { getPolicy } from "@/lib/services/settingsService.js";
 import { computeBatch, validateRoomMatchesFloor, getRegisterSchema, getFloorForRoom } from "@/lib/validators.js";
 import { notificationService } from "./notificationService.js";
+import { calculateProfileCompletion } from "@/lib/utils/profileCompletion.js";
 
 /**
  * List students with search, filters and pagination
@@ -42,47 +43,25 @@ export async function listStudents({ page = 1, pageSize = 10, search = "", depar
         }
       }
     } catch (e) {
-      console.warn("Could not fetch students from MySQL /api/students, falling back:", e);
+      console.warn("Could not fetch students from MySQL /api/students:", e);
     }
+
+    // Return empty list if no records or error in MySQL - do not use mock students
+    const paginationMeta = paginate([], page, pageSize);
+    return successResponse(paginationMeta.items, {
+      total: 0,
+      page,
+      pageSize,
+      totalPages: 0,
+    });
   }
 
-  await simulateLatency(150, 300);
-  const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
-
-  let filtered = [...students];
-
-  if (search) {
-    const q = search.toLowerCase().trim();
-    filtered = filtered.filter(
-      (s) =>
-        (s.name && s.name.toLowerCase().includes(q)) ||
-        (s.studentId && s.studentId.toLowerCase().includes(q)) ||
-        (s.email && s.email.toLowerCase().includes(q)) ||
-        (s.regNo && s.regNo.toLowerCase().includes(q)) ||
-        (s.regNumber && s.regNumber.toLowerCase().includes(q)) ||
-        (s.room && s.room.toLowerCase().includes(q)) ||
-        (s.roomNo && s.roomNo.toLowerCase().includes(q))
-    );
-  }
-
-  if (department) {
-    filtered = filtered.filter((s) => s.department === department || s.dept === department);
-  }
-
-  if (year) {
-    filtered = filtered.filter((s) => String(s.year) === String(year));
-  }
-
-  if (floor) {
-    filtered = filtered.filter((s) => s.floor === floor);
-  }
-
-  const paginationMeta = paginate(filtered, page, pageSize);
+  const paginationMeta = paginate([], page, pageSize);
   return successResponse(paginationMeta.items, {
-    total: paginationMeta.total,
-    page: paginationMeta.page,
-    pageSize: paginationMeta.pageSize,
-    totalPages: paginationMeta.totalPages,
+    total: 0,
+    page,
+    pageSize,
+    totalPages: 0,
   });
 }
 
@@ -91,8 +70,6 @@ export async function listStudents({ page = 1, pageSize = 10, search = "", depar
  * @param {string} studentId
  */
 export async function getStudentById(studentId) {
-  await simulateLatency(100, 200);
-
   // 1. Query MySQL profile API
   if (typeof window !== "undefined" && studentId) {
     try {
@@ -104,59 +81,11 @@ export async function getStudentById(studentId) {
         }
       }
     } catch (e) {
-      console.warn("Could not fetch student from MySQL API, trying fallback:", e);
+      console.warn("Could not fetch student from MySQL API:", e);
     }
   }
 
-  const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
-  const userMatch = users.find((u) => u.id === studentId || u.studentId === studentId);
-
-  const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
-  const studentMatch = students.find((s) => s.id === studentId || s.studentId === studentId);
-
-  if (!userMatch && !studentMatch) {
-    return errorResponse("NOT_FOUND", "Student record not found.");
-  }
-
-  const base = studentMatch || {};
-  const userObj = userMatch || {};
-
-  const floor = userObj.floor !== undefined ? userObj.floor : (base.floor !== undefined ? base.floor : null);
-  const floorConfig = WORKFLOW_CONFIG.floors.find((f) => f.id === floor);
-  const floorLabel = floorConfig ? floorConfig.label : (userObj.floorLabel || base.floorLabel || null);
-
-  const room = userObj.room !== undefined ? userObj.room : (userObj.roomNo !== undefined ? userObj.roomNo : (base.room !== undefined ? base.room : (base.roomNo !== undefined ? base.roomNo : null)));
-
-  const merged = {
-    ...base,
-    ...userObj,
-    floor,
-    floorLabel,
-    room,
-    roomNo: room,
-    roomNumber: room,
-    regNo: userObj.regNo || base.regNo || userObj.regNumber || base.regNumber || "",
-    regNumber: userObj.regNumber || base.regNumber || userObj.regNo || base.regNo || "",
-    programme: userObj.programme || base.programme || "B.E.",
-    section: userObj.section || base.section || "A",
-    batch: userObj.batch || base.batch || computeBatch(userObj.year || base.year || 1),
-    hostelVerification: userObj.hostelVerification || base.hostelVerification || (floor ? "verified" : "unallocated"),
-    guardianName: userObj.guardianName !== undefined ? userObj.guardianName : base.guardianName || "",
-    guardianPhone: userObj.guardianPhone !== undefined ? userObj.guardianPhone : base.guardianPhone || "",
-    fatherName: userObj.fatherName || base.fatherName || (userObj.guardianRelation === "Father" ? userObj.guardianName : "David Kumar"),
-    fatherPhone: userObj.fatherPhone || base.fatherPhone || (userObj.guardianRelation === "Father" ? userObj.guardianPhone : "9876500001"),
-    motherName: userObj.motherName || base.motherName || "Mary Kumar",
-    motherPhone: userObj.motherPhone || base.motherPhone || userObj.guardianAltPhone || "9876500002",
-    phone: userObj.phone !== undefined ? userObj.phone : base.phone || "",
-    photo: userObj.photo || base.photo || userObj.photoDataUrl || base.photoDataUrl || null,
-    photoDataUrl: userObj.photoDataUrl || base.photoDataUrl || userObj.photo || base.photo || null,
-    bloodGroup: userObj.bloodGroup || base.bloodGroup || "O+ve",
-    address: userObj.address !== undefined ? userObj.address : base.address || "",
-    dob: userObj.dob || base.dob || "",
-    avatar: userObj.avatar || base.avatar || "ST",
-  };
-
-  return successResponse(merged);
+  return errorResponse("NOT_FOUND", "Student record not found in system.");
 }
 
 /**
@@ -257,104 +186,23 @@ export async function getProfileCompleteness(studentId) {
     return successResponse({
       complete: false,
       percentage: 0,
+      filledCount: 0,
+      totalRequired: 14,
       missingFields: ["Profile Record"],
       missingFieldKeys: ["all"],
     });
   }
 
   const s = res.data;
-  const missing = [];
-  const missingKeys = [];
-
-  // 14 Applicable Profile Fields Breakdown:
-  // Group A: Student Information (6 fields)
-  // 1. Profile Photograph
-  if (!s.photo && !s.photoDataUrl) {
-    missing.push("Profile Photograph");
-    missingKeys.push("photo");
-  }
-  // 2. Department
-  if (!s.dept && !s.department) {
-    missing.push("Department");
-    missingKeys.push("department");
-  }
-  // 3. Academic Year
-  if (!s.year) {
-    missing.push("Academic Year");
-    missingKeys.push("year");
-  }
-  // 4. Phone Number
-  if (!s.phone || String(s.phone).trim() === "") {
-    missing.push("Phone Number");
-    missingKeys.push("phone");
-  }
-  // 5. Registration Number
-  if (!s.regNo && !s.regNumber) {
-    missing.push("Registration Number");
-    missingKeys.push("regNo");
-  }
-  // 6. Room Number
-  if (!s.room && !s.roomNo && !s.roomNumber) {
-    missing.push("Room Number");
-    missingKeys.push("roomNumber");
-  }
-
-  // Group B: Additional Information (4 fields)
-  // 7. College Email
-  if (!s.email && !s.collegeEmail) {
-    missing.push("College Email");
-    missingKeys.push("email");
-  }
-  // 8. Date of Birth
-  if (!s.dob || String(s.dob).trim() === "") {
-    missing.push("Date of Birth");
-    missingKeys.push("dob");
-  }
-  // 9. Blood Group
-  if (!s.bloodGroup || String(s.bloodGroup).trim() === "") {
-    missing.push("Blood Group");
-    missingKeys.push("bloodGroup");
-  }
-  // 10. Address
-  if (!s.address || String(s.address).trim() === "") {
-    missing.push("Address");
-    missingKeys.push("address");
-  }
-
-  // Group C: Parent Details (4 fields)
-  // 11. Father Name
-  if (!s.fatherName || String(s.fatherName).trim() === "") {
-    missing.push("Father Name");
-    missingKeys.push("fatherName");
-  }
-  // 12. Father Phone Number
-  if (!s.fatherPhone || String(s.fatherPhone).trim() === "") {
-    missing.push("Father Phone Number");
-    missingKeys.push("fatherPhone");
-  }
-  // 13. Mother Name
-  if (!s.motherName || String(s.motherName).trim() === "") {
-    missing.push("Mother Name");
-    missingKeys.push("motherName");
-  }
-  // 14. Mother Phone Number
-  if (!s.motherPhone || String(s.motherPhone).trim() === "") {
-    missing.push("Mother Phone Number");
-    missingKeys.push("motherPhone");
-  }
-
-  // Guardian fields are optional and do not affect profile completion
-  const totalRequired = 14;
-  const filledCount = totalRequired - missing.length;
-  const percentage = Math.max(0, Math.min(100, Math.round((filledCount / totalRequired) * 100)));
+  const stats = calculateProfileCompletion(s);
 
   return successResponse({
-    complete: missing.length === 0,
-    percentage,
-    filledCount,
-    totalRequired,
-    missingFields: missing,
-    missingFieldKeys: missingKeys,
+    complete: stats.is100Percent,
+    percentage: stats.percentage,
+    filledCount: stats.filledCount,
+    totalRequired: stats.totalRequired,
+    missingFields: stats.missingFields,
+    missingFieldKeys: stats.missingFieldKeys,
     isUnallocated: s.hostelVerification === "unallocated",
   });
 }
@@ -434,6 +282,7 @@ export async function registerStudent(payload) {
         body: JSON.stringify({
           name: data.name,
           email: cleanEmail,
+          gender: data.gender,
           dept: data.dept,
           year: data.year,
           phone: data.phone || "",
@@ -533,8 +382,11 @@ export async function allocateRoom({ studentId, floor, roomNo, actor = "Chief Wa
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
+  }
+  if (callerRole === ROLES.WARDEN) {
+    return errorResponse("NOT_ALLOWED", "Wardens have read-only access to resident profiles.");
   }
 
   // Check room capacity
@@ -588,8 +440,11 @@ export async function setHostelVerification({ studentId, status, note } = {}) {
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
+  }
+  if (callerRole === ROLES.WARDEN) {
+    return errorResponse("NOT_ALLOWED", "Wardens have read-only access to resident profiles.");
   }
 
   const patch = { hostelVerification: status };
@@ -602,8 +457,11 @@ export async function setHostelVerification({ studentId, status, note } = {}) {
 export async function createStudent(studentData) {
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
+  }
+  if (callerRole === ROLES.WARDEN) {
+    return errorResponse("NOT_ALLOWED", "Wardens have read-only access to resident profiles.");
   }
 
   return registerStudent(studentData);
@@ -616,136 +474,66 @@ export async function createStudent(studentData) {
  * @param {object} patch
  */
 export async function updateStudent(studentId, patch) {
-  await simulateLatency(200, 400);
+  await simulateLatency(150, 300);
 
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
-  if (callerRole === ROLES.PRINCIPAL || callerRole === ROLES.CORRESPONDENT) {
-    return errorResponse("NOT_ALLOWED", "Principal and Correspondent have read-only oversight access.");
+  if (callerRole === ROLES.CORRESPONDENT) {
+    return errorResponse("NOT_ALLOWED", "Correspondent has read-only oversight access.");
+  }
+  if (callerRole === ROLES.WARDEN) {
+    return errorResponse("NOT_ALLOWED", "Wardens have read-only access to resident profiles.");
   }
 
-  // Handle permanent photo upload to MySQL backend
-  if (patch.photo || patch.photoDataUrl) {
-    const rawPhoto = patch.photo || patch.photoDataUrl;
-    if (typeof window !== "undefined" && rawPhoto && String(rawPhoto).startsWith("data:")) {
-      try {
-        const photoRes = await fetch("/api/student/profile/photo", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-student-id": studentId,
-          },
-          body: JSON.stringify({
-            studentId,
-            photoDataUrl: rawPhoto,
-            fileName: "resident-photo.jpg",
-          }),
-        });
-        const photoJson = await photoRes.json();
-        if (photoJson.ok && photoJson.photoUrl) {
-          patch.photo = photoJson.photoUrl;
-          patch.photoUrl = photoJson.photoUrl;
-          patch.photoDataUrl = photoJson.photoUrl;
-        }
-      } catch (err) {
-        console.warn("Could not save photo to MySQL backend:", err);
-      }
-    }
-  }
-
-  // 1. Update in USERS
-  const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
-  const userIdx = users.findIndex((u) => u.id === studentId || u.studentId === studentId);
-  let updatedUser = null;
-
-  if (userIdx !== -1) {
-    const cur = users[userIdx];
-    const floor = patch.floor !== undefined ? patch.floor : cur.floor;
-    const flConfig = WORKFLOW_CONFIG.floors.find((f) => f.id === floor);
-    const floorLabel = flConfig ? flConfig.label : (patch.floorLabel || cur.floorLabel || null);
-    const room = patch.roomNo !== undefined ? patch.roomNo : (patch.room !== undefined ? patch.room : cur.room);
-
-    const guardianName =
-      patch.guardianName !== undefined
-        ? (patch.guardianName.trim() === "" ? cur.guardianName : patch.guardianName)
-        : cur.guardianName;
-    const guardianPhone =
-      patch.guardianPhone !== undefined
-        ? (patch.guardianPhone.trim() === "" ? cur.guardianPhone : patch.guardianPhone)
-        : cur.guardianPhone;
-
-    updatedUser = {
-      ...cur,
-      ...patch,
-      guardianName,
-      guardianPhone,
-      floor,
-      floorLabel,
-      room,
-      roomNo: room,
-      roomNumber: room,
-      updatedAt: new Date().toISOString(),
-    };
-    users[userIdx] = updatedUser;
-    setPersistentMock(STORAGE_KEYS.USERS, users);
-  }
-
-  // 2. Update in STUDENTS
-  const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
-  const studentIdx = students.findIndex((s) => s.id === studentId || s.studentId === studentId);
-  let updatedStudent = null;
-
-  if (studentIdx !== -1) {
-    const cur = students[studentIdx];
-    const floor = patch.floor !== undefined ? patch.floor : cur.floor;
-    const flConfig = WORKFLOW_CONFIG.floors.find((f) => f.id === floor);
-    const floorLabel = flConfig ? flConfig.label : (patch.floorLabel || cur.floorLabel || null);
-    const room = patch.roomNo !== undefined ? patch.roomNo : (patch.room !== undefined ? patch.room : cur.room);
-
-    const guardianName =
-      patch.guardianName !== undefined
-        ? (patch.guardianName.trim() === "" ? cur.guardianName : patch.guardianName)
-        : cur.guardianName;
-    const guardianPhone =
-      patch.guardianPhone !== undefined
-        ? (patch.guardianPhone.trim() === "" ? cur.guardianPhone : patch.guardianPhone)
-        : cur.guardianPhone;
-
-    updatedStudent = {
-      ...cur,
-      ...patch,
-      guardianName,
-      guardianPhone,
-      floor,
-      floorLabel,
-      room,
-      roomNo: room,
-      roomNumber: room,
-      updatedAt: new Date().toISOString(),
-    };
-    students[studentIdx] = updatedStudent;
-    setPersistentMock(STORAGE_KEYS.STUDENTS, students);
-  }
-
-  const finalRecord = updatedUser || updatedStudent || { studentId, ...patch };
-
-  // 3. Update localStorage session if current user matches
-  if (typeof window !== "undefined") {
+  // 1. Direct MySQL Database Update when running in browser
+  if (typeof window !== "undefined" && studentId) {
     try {
-      const sessionRaw = localStorage.getItem("dmi_auth_session_v2");
-      if (sessionRaw) {
-        const session = JSON.parse(sessionRaw);
-        if (session.user && (session.user.studentId === studentId || session.user.id === studentId)) {
-          session.user = { ...session.user, ...finalRecord };
-          localStorage.setItem("dmi_auth_session_v2", JSON.stringify(session));
-        }
+      const res = await fetch("/api/student/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-student-id": studentId,
+        },
+        body: JSON.stringify({
+          studentId,
+          ...patch,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        return errorResponse("UPDATE_FAILED", json.message || "Failed to update profile in database.");
       }
-    } catch (e) {
-      console.warn("Could not sync local session user:", e);
+
+      const updatedRecord = json.data;
+
+      // Synchronize active session in localStorage so that header, profile cards, and forms update instantly
+      try {
+        const sessionRaw = localStorage.getItem("dmi_auth_session_v2");
+        if (sessionRaw) {
+          const activeSession = JSON.parse(sessionRaw);
+          if (
+            activeSession.user &&
+            (activeSession.user.studentId === studentId || activeSession.user.id === studentId)
+          ) {
+            activeSession.user = { ...activeSession.user, ...updatedRecord };
+            localStorage.setItem("dmi_auth_session_v2", JSON.stringify(activeSession));
+            window.dispatchEvent(new Event("storage"));
+          }
+        }
+      } catch (e) {
+        console.warn("Could not sync local session user:", e);
+      }
+
+      return successResponse(updatedRecord);
+    } catch (apiErr) {
+      console.error("PUT /api/student/profile failed:", apiErr);
+      return errorResponse("NETWORK_ERROR", "Could not connect to student profile service.");
     }
   }
 
-  return successResponse(finalRecord);
+  // Fallback for non-browser environment
+  return successResponse({ studentId, ...patch });
 }
 
 export const updateStudentProfile = updateStudent;
@@ -754,14 +542,34 @@ export const updateStudentProfile = updateStudent;
  * Get aggregate statistics for students
  */
 export async function getStudentStats() {
-  await simulateLatency(150, 300);
-  const students = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/warden/stats");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.data) {
+          const d = json.data;
+          return successResponse({
+            totalResidents: d.totalRegistered || 0,
+            activeInside: Math.max(0, (d.totalRegistered || 0) - (d.studentsOutside || 0)),
+            currentlyOutside: d.studentsOutside || 0,
+            totalRooms: 120,
+            occupancyRate: d.totalRegistered > 0 ? `${Math.round((d.allocatedStudents / Math.max(1, d.totalRegistered)) * 100)}%` : "0%",
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch student stats from MySQL API:", e);
+    }
+  }
+
+  const students = getPersistentMock(STORAGE_KEYS.STUDENTS, []);
   return successResponse({
     totalResidents: students.length,
-    activeInside: Math.round(students.length * 0.82),
-    currentlyOutside: Math.round(students.length * 0.18),
+    activeInside: students.length,
+    currentlyOutside: 0,
     totalRooms: 120,
-    occupancyRate: "92%",
+    occupancyRate: "0%",
   });
 }
 
@@ -923,7 +731,6 @@ export async function getByIdScoped(studentId) {
   const session = getCurrentSession();
   const callerRole = session?.user?.role || session?.role;
   const isCampusWide =
-    callerRole === ROLES.PRINCIPAL ||
     callerRole === ROLES.CORRESPONDENT ||
     callerRole === ROLES.WARDEN;
 

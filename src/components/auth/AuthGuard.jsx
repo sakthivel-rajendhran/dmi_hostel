@@ -14,26 +14,56 @@ import { LoadingScreen } from "@/components/ui/LoadingScreen.jsx";
  * @param {React.ReactNode} props.children
  */
 export function AuthGuard({ allowedRoles = [], children }) {
-  // TODO(BACKEND): replace with server middleware + server-side role checks
   const router = useRouter();
-  const { session, role, loading } = useAuth();
+  const { session, role, loading, logout } = useAuth();
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
     if (loading) return;
 
     if (!session || !role) {
-      // In demo development mode, if user visits a role page directly, auto-fill demo session
-      // or redirect to login. If on public routes, allow.
       router.replace("/");
       return;
     }
 
     if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-      // Unauthorized for this specific role, redirect to user's assigned home route
       const destination = getHomeRoute(role);
       router.replace(destination);
       return;
+    }
+
+    // Backend security enforcement: Student accounts must be APPROVED by Warden
+    if (role === "student") {
+      const accStatus = (session?.user?.accountStatus || session?.user?.account_status || "").toUpperCase();
+      if (accStatus && accStatus !== "APPROVED") {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("dmi_auth_session_v2");
+        }
+        router.replace("/");
+        return;
+      }
+
+      // First-login password change enforcement: Redirect directly to /change-password
+      const mustChange = Boolean(session?.mustChangePassword ?? session?.user?.mustChangePassword);
+      if (mustChange) {
+        router.replace("/change-password");
+        return;
+      }
+
+      // Re-verify against server in background to prevent stale or manipulated localStorage
+      const stuId = session?.user?.studentId || session?.user?.id;
+      if (stuId) {
+        fetch(`/api/student/profile?studentId=${encodeURIComponent(stuId)}`)
+          .then((res) => {
+            if (res.status === 403 || res.status === 401) {
+              if (typeof window !== "undefined") {
+                localStorage.removeItem("dmi_auth_session_v2");
+              }
+              router.replace("/");
+            }
+          })
+          .catch(() => {});
+      }
     }
 
     setAuthorized(true);

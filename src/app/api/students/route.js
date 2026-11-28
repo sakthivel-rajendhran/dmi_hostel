@@ -19,8 +19,14 @@ export async function GET(request) {
     const params = [];
 
     if (status !== "all") {
-      whereClauses.push("s.allocation_status = ?");
-      params.push(status);
+      if (status === "accepted" || status === "approved") {
+        whereClauses.push("(s.allocation_status = 'accepted' AND COALESCE(u.account_status, 'APPROVED') = 'APPROVED')");
+      } else if (status === "waiting_for_warden" || status === "pending") {
+        whereClauses.push("(s.allocation_status = 'waiting_for_warden' OR COALESCE(u.account_status, 'PENDING_WARDEN') IN ('PENDING_WARDEN', 'PENDING'))");
+      } else {
+        whereClauses.push("s.allocation_status = ?");
+        params.push(status);
+      }
     }
 
     if (dept !== "all") {
@@ -67,7 +73,8 @@ export async function GET(request) {
         u.email,
         u.phone AS user_phone,
         u.avatar_url,
-        u.status AS user_status
+        u.status AS user_status,
+        u.account_status
       FROM students s
       JOIN users u ON (u.id = s.id OR u.id = s.student_id)
       ${whereSQL}
@@ -108,6 +115,7 @@ export async function GET(request) {
       roomNumber: s.room_number || "—",
       bedNumber: 1,
       allocationStatus: s.allocation_status || "waiting_for_warden",
+      accountStatus: s.account_status || s.user_status || "APPROVED",
       status: "In Campus",
       profileCompleted: Boolean(s.profile_completed),
       photoUrl: s.photo_url || s.avatar_url || null,

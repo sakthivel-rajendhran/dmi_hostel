@@ -94,26 +94,36 @@ export default function WardenAnnouncementsPage() {
             <span>Past Announcements</span>
           </h3>
 
-          <div className="space-y-3">
-            {notifications.slice(0, 6).map((notif) => (
-              <div
-                key={notif.id}
-                className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="font-bold text-xs text-text-dark dark:text-white">
-                    {notif.title}
-                  </h4>
-                  <span className="text-[10px] text-text-muted dark:text-slate-400">
-                    {formatDateTime(notif.createdAt)}
-                  </span>
+          {notifications.length === 0 ? (
+            <div className="text-center py-10">
+              <Bell className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+              <h4 className="font-bold text-sm text-text-dark dark:text-white">No notifications available.</h4>
+              <p className="text-xs text-text-muted dark:text-slate-400 mt-1">
+                Broadcasted notices and alerts will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {notifications.slice(0, 6).map((notif) => (
+                <div
+                  key={notif.id}
+                  className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <h4 className="font-bold text-xs text-text-dark dark:text-white">
+                      {notif.title}
+                    </h4>
+                    <span className="text-[10px] text-text-muted dark:text-slate-400">
+                      {formatDateTime(notif.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {notif.message}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  {notif.message}
-                </p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
     </div>

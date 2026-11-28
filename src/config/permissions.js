@@ -1,7 +1,7 @@
 /**
  * DMI College Hostel Management PWA - Permissions Matrix
  * Single source of truth for permission keys and role-based access control.
- * Strictly 6 discrete roles: student, warden, staff, hod, principal, correspondent.
+ * Strictly 5 discrete roles: student, warden, staff, hod, correspondent.
  */
 
 export const PERMISSIONS = {
@@ -77,14 +77,6 @@ export const ROLE_PERMISSIONS = {
     PERMISSIONS.STUDENTS_VIEW_DEPT,
     PERMISSIONS.REPORTS_DEPT,
     PERMISSIONS.ANALYTICS_DEPT,
-    PERMISSIONS.PROFILE_EDIT_OWN,
-  ],
-  principal: [
-    PERMISSIONS.REPORTS_CAMPUS,
-    PERMISSIONS.REPORTS_EXPORT,
-    PERMISSIONS.SECURITY_LOG_VIEW,
-    PERMISSIONS.SECURITY_LOG_EXPORT,
-    PERMISSIONS.LETTERS_APPROVE,
     PERMISSIONS.PROFILE_EDIT_OWN,
   ],
   correspondent: [

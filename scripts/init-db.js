@@ -67,7 +67,7 @@ async function main() {
         );
 
         // Staff profile if applicable
-        if (["staff", "hod", "warden", "principal", "correspondent"].includes(u.role)) {
+        if (["staff", "hod", "warden", "correspondent"].includes(u.role)) {
           await connection.query(
             `INSERT INTO staff_profiles (user_id, department, designation, assigned_years)
              VALUES (?, ?, ?, ?)

@@ -70,6 +70,8 @@ export function useUpdateStudent() {
       queryClient.invalidateQueries({ queryKey: queryKeys.students.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.students.completeness(variables.studentId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.students.detail(variables.studentId) });
+      queryClient.invalidateQueries({ queryKey: ["student"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
     },
   });
 }

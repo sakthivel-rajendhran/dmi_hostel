@@ -20,8 +20,15 @@ export function Avatar({
   statusDot, // 'online' | 'offline' | 'busy'
   className = "",
 }) {
+  const [imgError, setImgError] = React.useState(false);
+
+  React.useEffect(() => {
+    setImgError(false);
+  }, [src]);
+
   const initials = getInitials(name);
   const isImgUrl =
+    !imgError &&
     typeof src === "string" &&
     (src.startsWith("/") ||
       src.startsWith("http://") ||
@@ -30,17 +37,29 @@ export function Avatar({
       src.startsWith("blob:"));
 
   return (
-    <div className={cn("relative inline-flex flex-shrink-0 select-none rounded-full", className)}>
-      <div
-        className={cn(
-          "rounded-full overflow-hidden flex items-center justify-center font-bold text-white shadow-sm border border-white/60 dark:border-white/10 bg-gradient-to-tr from-[#2438E8] to-[#6D28D9]",
-          SIZE_MAP[size]
-        )}
-      >
+    <div
+      className={cn(
+        "relative inline-flex shrink-0 select-none rounded-full items-center justify-center overflow-hidden",
+        SIZE_MAP[size],
+        className
+      )}
+    >
+      <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center font-bold text-white shadow-xs border border-white/60 dark:border-white/10 bg-gradient-to-tr from-[#2438E8] to-[#6D28D9] shrink-0 aspect-square">
         {isImgUrl ? (
-          <Image src={src} alt={alt} width={64} height={64} unoptimized className="w-full h-full object-cover" />
+          <Image
+            src={src}
+            alt={alt}
+            width={64}
+            height={64}
+            unoptimized
+            className="w-full h-full object-cover object-center aspect-square"
+            style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", aspectRatio: "1/1" }}
+            onError={() => setImgError(true)}
+          />
         ) : (
-          <span>{initials || (typeof src === "string" && src.length <= 4 ? src : "U")}</span>
+          <span className="leading-none text-center select-none uppercase font-bold">
+            {initials || (typeof src === "string" && src.length <= 4 ? src : "U")}
+          </span>
         )}
       </div>
 

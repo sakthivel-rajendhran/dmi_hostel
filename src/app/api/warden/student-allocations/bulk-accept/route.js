@@ -20,8 +20,17 @@ export async function POST(request) {
       for (const id of studentIds) {
         try {
           await conn.execute(
-            "UPDATE students SET allocation_status = 'accepted', updated_at = NOW() WHERE id = ? AND allocation_status = 'waiting_for_warden'",
+            "UPDATE users SET account_status = 'APPROVED', status = 'Active', updated_at = NOW() WHERE id = ?",
             [id]
+          );
+          await conn.execute(
+            "UPDATE students SET account_status = 'APPROVED', allocation_status = 'accepted', updated_at = NOW() WHERE id = ? OR student_id = ?",
+            [id, id]
+          );
+          await conn.execute(
+            `INSERT INTO student_registration_approvals (student_id, warden_id, decision, reason, decided_at)
+             VALUES (?, ?, 'APPROVED', NULL, NOW())`,
+            [id, wardenId]
           );
           await conn.execute(
             `INSERT INTO allocation_decisions (student_id, warden_id, decision, rejection_reason, decided_at)

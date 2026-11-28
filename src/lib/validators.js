@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { WORKFLOW_CONFIG } from "@/config/workflow.js";
 
-// Student ID Regex Schema (e.g. CSE-3-001)
+// Student ID Regex Schema (Supports new CSE0401 and legacy CSE-3-001)
 export const studentIdSchema = z
   .string()
   .trim()
   .min(1, "Student ID is required")
   .regex(
-    /^[A-Z]{2,6}-[1-4]-\d{3}$/,
-    "Use the format DEPT-YEAR-NUMBER, e.g. CSE-3-001"
+    /(^[A-Z&]{2,6}[0-9]{2}[0-9]{2,}$)|(^[A-Z&]{2,6}-[1-4]-\d{3}$)/,
+    "Use format DEPT-YEAR-SEQ (e.g. CSE0401 or CSE-4-001)"
   );
 
 // Gmail / Official Staff Email Schema
@@ -55,7 +55,6 @@ export const regNoSchema = z
  */
 const FLOOR_PREFIX_MAP = {
   GF: { prefix: "G", label: "Ground Floor", min: 1, max: 30 },
-  F1: { prefix: "1", label: "1st Floor", min: 101, max: 130 },
   F2: { prefix: "2", label: "2nd Floor", min: 201, max: 230 },
   F3: { prefix: "3", label: "3rd Floor", min: 301, max: 330 },
   F4: { prefix: "4", label: "4th Floor", min: 401, max: 430 },
@@ -109,7 +108,10 @@ export const step1Schema = z.object({
   email: gmailSchema,
   roomNo: roomNoSchema,
   phone: indianPhoneSchema,
-  dept: z.enum(["CSE", "IT", "ECE", "EEE", "MECH", "CIVIL", "AI&DS"], {
+  gender: z.enum(["Male", "Female"], {
+    errorMap: () => ({ message: "Please select your gender (Male or Female)" }),
+  }),
+  dept: z.enum(["CSE", "IT", "AI&DS", "AI&ML", "CIVIL", "ECE", "EEE", "MECH"], {
     message: "Select your engineering department",
   }),
   year: z.coerce.number().min(1).max(4),
@@ -349,6 +351,7 @@ export const studentProfileSchema = z.object({
   email: z.string().trim().email("Invalid email address").optional().or(z.literal("")),
   collegeEmail: z.string().trim().email("Invalid email address").optional().or(z.literal("")),
   phone: indianPhoneSchema,
+  gender: z.string().optional().or(z.literal("")),
   department: z.string().optional(),
   year: z.any().optional(),
   regNo: z.string().optional(),

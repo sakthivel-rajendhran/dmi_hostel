@@ -20,53 +20,23 @@ function getActiveCaller() {
   const session = getCurrentSession();
   if (session?.user) return session.user;
   return {
-    id: "PRINCIPAL-001",
-    name: "Dr. Joseph Lawrence",
-    role: ROLES.PRINCIPAL,
-    designation: "College Principal",
+    id: "CORRESPONDENT-001",
+    name: "Rev. Fr. J. E. Arul Raj",
+    role: ROLES.CORRESPONDENT,
+    designation: "Founder & Correspondent",
   };
 }
 
 /**
- * Calculates current resolution of a letter based on decisions and policy approverMode
+ * Calculates current resolution of a letter based on Correspondent decisions
  * @param {Array} decisions
- * @param {string} approverMode - 'either' | 'both' | 'principal_only' | 'correspondent_only'
+ * @param {string} approverMode - 'correspondent_only'
  * @returns {string} - Status from LETTER_STATUSES
  */
-export function evaluateLetterStatus(decisions = [], approverMode = "either") {
-  const principalDec = decisions.find((d) => d.byRole === ROLES.PRINCIPAL);
+export function evaluateLetterStatus(decisions = [], approverMode = "correspondent_only") {
   const correspondentDec = decisions.find((d) => d.byRole === ROLES.CORRESPONDENT);
-
-  if (approverMode === "principal_only") {
-    if (!principalDec) return LETTER_STATUSES.SUBMITTED;
-    return principalDec.verdict === "approve" ? LETTER_STATUSES.APPROVED : LETTER_STATUSES.DECLINED;
-  }
-
-  if (approverMode === "correspondent_only") {
-    if (!correspondentDec) return LETTER_STATUSES.SUBMITTED;
-    return correspondentDec.verdict === "approve" ? LETTER_STATUSES.APPROVED : LETTER_STATUSES.DECLINED;
-  }
-
-  if (approverMode === "both") {
-    // Both must approve. If either declines, letter is declined.
-    if (principalDec?.verdict === "decline" || correspondentDec?.verdict === "decline") {
-      return LETTER_STATUSES.DECLINED;
-    }
-    if (principalDec?.verdict === "approve" && correspondentDec?.verdict === "approve") {
-      return LETTER_STATUSES.APPROVED;
-    }
-    return LETTER_STATUSES.SUBMITTED;
-  }
-
-  // Default: 'either'
-  // Any one approve makes it approved. If both have reviewed and both declined, it's declined.
-  if (principalDec?.verdict === "approve" || correspondentDec?.verdict === "approve") {
-    return LETTER_STATUSES.APPROVED;
-  }
-  if (principalDec?.verdict === "decline" && correspondentDec?.verdict === "decline") {
-    return LETTER_STATUSES.DECLINED;
-  }
-  return LETTER_STATUSES.SUBMITTED;
+  if (!correspondentDec) return LETTER_STATUSES.SUBMITTED;
+  return correspondentDec.verdict === "approve" ? LETTER_STATUSES.APPROVED : LETTER_STATUSES.DECLINED;
 }
 
 /**
@@ -242,8 +212,8 @@ export async function submit({
   }
 
   const caller = getActiveCaller();
-  const sId = studentId || caller.studentId || caller.id || "CSE-3-001";
-  const sName = studentName || caller.name || "Rahul Kumar";
+  const sId = studentId || caller.studentId || caller.id || "";
+  const sName = studentName || caller.name || "";
 
   const letters = getPersistentMock(STORAGE_KEYS.LETTERS, MOCK_LETTERS);
   const nextSeq = letters.length + 1;
@@ -301,7 +271,7 @@ export async function submit({
 
   // TODO(BACKEND): upload to Cloudinary or Supabase Storage with server-side type and size validation, and store only the URL.
 
-  // Notify Warden, Principal & Correspondent
+  // Notify Warden & Correspondent
   try {
     await notificationService.createNotification({
       type: "announcement",
@@ -359,7 +329,7 @@ export async function withdraw(id) {
 }
 
 /**
- * Principal or Correspondent registers an institutional decision (Endorse / Decline)
+ * Correspondent registers an institutional decision (Endorse / Decline)
  * @param {object} params
  * @param {string} params.letterId
  * @param {string} params.verdict - 'approve' | 'decline'
@@ -378,14 +348,9 @@ export async function decide({ letterId, verdict, note = "" } = {}) {
     return errorResponse("NOT_ALLOWED", "You do not have permission to endorse student letters.");
   }
 
-  const approverMode = policy.studentLetters.approverMode || "either";
+  const approverMode = policy.studentLetters.approverMode || "correspondent_only";
 
-  // Check single-role enforcement
-  if (approverMode === "principal_only" && caller.role !== ROLES.PRINCIPAL) {
-    return errorResponse("NOT_ALLOWED", "Institutional policy requires approval exclusively from College Principal.");
-  }
-
-  if (approverMode === "correspondent_only" && caller.role !== ROLES.CORRESPONDENT) {
+  if (caller.role !== ROLES.CORRESPONDENT) {
     return errorResponse("NOT_ALLOWED", "Institutional policy requires approval exclusively from College Correspondent.");
   }
 
@@ -419,7 +384,7 @@ export async function decide({ letterId, verdict, note = "" } = {}) {
 
   const newStatus = evaluateLetterStatus(updatedDecisions, approverMode);
 
-  const roleLabel = caller.role === ROLES.PRINCIPAL ? "Principal" : "Correspondent";
+  const roleLabel = "Correspondent";
   const actionLabel = verdict === "approve" ? `Endorsed by ${roleLabel}` : `Declined by ${roleLabel}`;
 
   const updatedTimeline = [
@@ -483,7 +448,7 @@ export async function undoDecision({ letterId } = {}) {
   const newStatus = evaluateLetterStatus(updatedDecisions, approverMode);
 
   const nowIso = new Date().toISOString();
-  const roleLabel = caller.role === ROLES.PRINCIPAL ? "Principal" : "Correspondent";
+  const roleLabel = "Correspondent";
 
   const updatedTimeline = [
     ...(letter.timeline || []),

@@ -5,6 +5,8 @@
 
 export const PASS_STATUSES = {
   PENDING: "pending",
+  PENDING_STAFF: "pending_staff",
+  PENDING_WARDEN: "pending_warden",
   RECOMMENDED: "recommended",
   APPROVED: "approved",
   REJECTED: "rejected",
@@ -25,6 +27,26 @@ export const STATUS_CONFIG = {
     borderClass: "border-amber-200 dark:border-amber-800/60",
     textClass: "text-amber-800 dark:text-amber-300",
     icon: "Clock",
+  },
+  [PASS_STATUSES.PENDING_STAFF]: {
+    key: "pending_staff",
+    label: "Pending Staff Review",
+    badge: "Amber",
+    dotClass: "bg-amber-500",
+    bgClass: "bg-amber-50 dark:bg-amber-950/40",
+    borderClass: "border-amber-200 dark:border-amber-800/60",
+    textClass: "text-amber-800 dark:text-amber-300",
+    icon: "Clock",
+  },
+  [PASS_STATUSES.PENDING_WARDEN]: {
+    key: "pending_warden",
+    label: "Pending Warden Approval",
+    badge: "Sky",
+    dotClass: "bg-sky-500",
+    bgClass: "bg-sky-50 dark:bg-sky-950/40",
+    borderClass: "border-sky-200 dark:border-sky-800/60",
+    textClass: "text-sky-800 dark:text-sky-300",
+    icon: "UserCheck",
   },
   [PASS_STATUSES.RECOMMENDED]: {
     key: "recommended",

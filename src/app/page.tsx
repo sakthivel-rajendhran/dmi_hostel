@@ -6,14 +6,12 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { HeroSection } from "@/components/login/hero-section";
 import { LoginCard } from "@/components/login/login-card";
 import { BackgroundScene } from "@/components/login/background-scene";
-import { ForgotPasswordModal } from "@/components/login/forgot-password-modal";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [isForgotPassOpen, setIsForgotPassOpen] = useState(false);
 
   return (
     <div className="relative min-h-dvh lg:h-dvh lg:overflow-hidden w-full overflow-x-hidden flex flex-col lg:grid lg:grid-rows-[auto_minmax(0,1fr)]">
@@ -89,7 +87,7 @@ export default function LoginPage() {
         <div className="flex flex-col items-center justify-center w-full self-center max-h-full">
           <LoginCard
             onOpenRegister={() => router.push("/register")}
-            onOpenForgotPassword={() => setIsForgotPassOpen(true)}
+            onOpenForgotPassword={() => router.push("/forgot-password")}
           />
         </div>
       </main>
@@ -100,16 +98,6 @@ export default function LoginPage() {
           &ldquo;DMI – Learn, Grow, Belong&rdquo;
         </p>
       </div>
-
-      {/* Forgot Password Modal */}
-      <AnimatePresence>
-        {isForgotPassOpen && (
-          <ForgotPasswordModal
-            isOpen={isForgotPassOpen}
-            onClose={() => setIsForgotPassOpen(false)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useSafeSearchParams } from "@/hooks/useSafeSearchParams.js";
 import {
   Users,
   Search,
@@ -38,7 +39,7 @@ import { toast } from "sonner";
 
 export function DepartmentStudents({ role = "staff" }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const initialStudentId = searchParams.get("student");
 
   const { user } = useAuth();
@@ -50,7 +51,7 @@ export function DepartmentStudents({ role = "staff" }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [yearFilter, setYearFilter] = useState("all");
   const [floorFilter, setFloorFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [homePassFilter, setHomePassFilter] = useState("all");
   const [lateFilter, setLateFilter] = useState("all");
 
@@ -607,7 +608,7 @@ export function DepartmentStudents({ role = "staff" }) {
                     <div>
                       <span className="text-slate-400 block text-[10px]">Monthly Home Passes Used</span>
                       <strong className="text-base font-bold text-slate-900 dark:text-white">
-                        {studentDetail.homePassesUsedThisMonth || 0} / 2
+                        {studentDetail.homePassesUsedThisMonth || 0} (Unlimited)
                       </strong>
                     </div>
                   </div>
@@ -616,7 +617,7 @@ export function DepartmentStudents({ role = "staff" }) {
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-500 space-y-1">
                   <p className="font-semibold text-slate-700 dark:text-slate-300">Hostel Compliance Notes:</p>
                   <p>• Local passes must return before 21:00 on the same calendar day.</p>
-                  <p>• Maximum 2 home passes are permissible per calendar month.</p>
+                  <p>• Outpass applications are unlimited with independent approvals.</p>
                   <p>• Repeat late returns are flagged in the HOD analytics watchlist.</p>
                 </div>
               </div>

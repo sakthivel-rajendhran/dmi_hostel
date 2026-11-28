@@ -25,11 +25,12 @@ import { Select } from "@/components/ui/Select.jsx";
 import { Modal } from "@/components/ui/Modal.jsx";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog.jsx";
 import { StatusBadge } from "@/components/ui/StatusBadge.jsx";
+import { Skeleton } from "@/components/ui/Skeleton.jsx";
 import { FileDropzone } from "@/components/ui/FileDropzone.jsx";
 import { useAuth } from "@/hooks/use-auth.js";
 import { usePolicy } from "@/hooks/usePolicy.js";
 import { useLetters, useSubmitLetter, useWithdrawLetter } from "@/hooks/queries/useLetters.js";
-import { usePasses } from "@/hooks/queries/usePasses.js";
+import { useStudentPasses } from "@/hooks/queries/usePasses.js";
 import { LETTER_STATUSES, getLetterStatusConfig } from "@/config/status.js";
 import { formatDateTime, formatDate } from "@/lib/utils/format.js";
 import { toast } from "sonner";
@@ -72,10 +73,8 @@ export default function StudentLettersPage() {
     (l) => l.studentId === user?.studentId || l.studentId === user?.id
   );
 
-  const { data: passes = [] } = usePasses();
-  const studentPasses = passes.filter(
-    (p) => p.studentId === user?.studentId || p.studentId === user?.id
-  );
+  const studentId = user?.studentId || user?.id;
+  const { data: studentPasses = [] } = useStudentPasses(studentId);
 
   const submitMutation = useSubmitLetter();
   const withdrawMutation = useWithdrawLetter();
@@ -209,7 +208,7 @@ export default function StudentLettersPage() {
           <FileText className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto" />
           <h3 className="font-bold text-sm text-text-dark dark:text-white">No Special Letters Submitted</h3>
           <p className="text-text-muted dark:text-slate-400 max-w-sm mx-auto">
-            You have not submitted any special permission letters. If you are taking extended home leave exceeding 7 days, submit a letter for Principal / Correspondent clearance.
+            You have not submitted any special permission letters. If you are taking extended home leave exceeding 7 days, submit a letter for Correspondent clearance.
           </p>
           <Button
             size="sm"
@@ -305,7 +304,7 @@ export default function StudentLettersPage() {
         isOpen={isSubmitModalOpen}
         onClose={() => setIsSubmitModalOpen(false)}
         title="Submit Special Permission Letter"
-        description="Formal request dispatched to College Principal and Correspondent."
+        description="Formal request dispatched to College Correspondent."
       >
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <Select

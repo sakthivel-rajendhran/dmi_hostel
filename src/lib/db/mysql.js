@@ -4,7 +4,7 @@ const DB_CONFIG = {
   host: process.env.DB_HOST || "127.0.0.1",
   port: Number(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "Anbu@2005",
+  password: process.env.DB_PASSWORD || "Sakthi@2004",
   database: process.env.DB_NAME || "hostel_management",
   waitForConnections: true,
   connectionLimit: 10,

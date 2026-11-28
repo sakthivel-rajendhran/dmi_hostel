@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db/mysql.js";
+import { query, getPool } from "@/lib/db/mysql.js";
 import { WORKFLOW_CONFIG } from "@/config/workflow.js";
-import { generateStudentId } from "@/lib/utils/student-id.js";
+import { allocateNextStudentId } from "@/lib/utils/student-id.js";
 import { computeBatch, getFloorForRoom } from "@/lib/validators.js";
 
 export async function POST(request) {
@@ -10,6 +10,7 @@ export async function POST(request) {
     const {
       name,
       email,
+      gender,
       dept = "CSE",
       year = 1,
       phone = "",
@@ -29,6 +30,15 @@ export async function POST(request) {
     if (!name || !email || !regNo) {
       return NextResponse.json(
         { ok: false, code: "MISSING_FIELDS", message: "Name, email, and register number are required." },
+        { status: 400 }
+      );
+    }
+
+    // Gender validation (Strictly "Male" or "Female")
+    const cleanGender = typeof gender === "string" ? gender.trim() : "";
+    if (!cleanGender || (cleanGender !== "Male" && cleanGender !== "Female")) {
+      return NextResponse.json(
+        { ok: false, code: "INVALID_GENDER", message: "Gender is required and must be either 'Male' or 'Female'." },
         { status: 400 }
       );
     }
@@ -72,29 +82,9 @@ export async function POST(request) {
       );
     }
 
-    // 4. Generate unique Student ID (e.g. CSE-1-001)
-    const deptStudents = await query(
-      "SELECT student_id, id FROM students WHERE department = ? AND year = ?",
-      [cleanDept, cleanYear]
-    );
-    const deptUsers = await query(
-      "SELECT id FROM users WHERE id LIKE ?",
-      [`${cleanDept}-${cleanYear}-%`]
-    );
-    const existingIds = [
-      ...(deptStudents || []).map((s) => s.student_id || s.id),
-      ...(deptUsers || []).map((u) => u.id),
-    ];
-    const studentId = generateStudentId({
-      dept: cleanDept,
-      year: cleanYear,
-      existingIds,
-    });
-
     const defaultPassword = WORKFLOW_CONFIG.defaultPassword || "DmiCE@1202";
 
-    // 5. Handle Resident Photo Storage in MySQL
-    let photoUrl = null;
+    // 4. Handle Resident Photo Buffer
     let photoBuffer = null;
     let mimeType = "image/jpeg";
     let fileSize = 0;
@@ -107,60 +97,78 @@ export async function POST(request) {
           const base64Data = matches[2];
           photoBuffer = Buffer.from(base64Data, "base64");
           fileSize = photoBuffer.length;
-          photoUrl = `/api/student/profile/photo?studentId=${studentId}`;
         }
       } catch (err) {
         console.warn("Could not decode photo for database storage:", err);
       }
     }
 
-    // 6. Save permanent User Record into MySQL
-    await query(
-      `INSERT INTO users (
-        id, email, password, role, name, phone, avatar_url, must_change_password, status
-      ) VALUES (?, ?, ?, 'student', ?, ?, ?, 1, 'active')`,
-      [
-        studentId,
-        cleanEmail,
-        defaultPassword,
-        cleanName,
-        cleanPhone,
-        photoUrl,
-      ]
-    );
+    // 5. Transaction-safe atomic student ID allocation and database insertion
+    const pool = getPool();
+    const conn = await pool.getConnection();
+    let studentId = null;
+    let photoUrl = null;
 
-    // 7. Save permanent Student Record into MySQL
-    await query(
-      `INSERT INTO students (
-        id, student_id, reg_no, name, department, programme, section, year, batch,
-        phone, floor, room_number, room_verified, guardian_name, guardian_phone,
-        guardian_relation, photo_url, profile_completed
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-      [
-        studentId,
-        studentId,
-        cleanRegNo,
-        cleanName,
-        cleanDept,
-        cleanProgramme,
-        cleanSection,
-        cleanYear,
-        cleanBatch,
-        cleanPhone,
-        cleanFloor || null,
-        cleanRoomNo || null,
-        cleanGuardianName,
-        cleanGuardianPhone,
-        cleanGuardianRelation,
-        photoUrl,
-        photoUrl ? 1 : 0,
-      ]
-    );
+    try {
+      await conn.beginTransaction();
 
-    // 8. If photo buffer available, insert into MySQL student_photos
-    if (photoBuffer && photoBuffer.length > 0) {
-      try {
-        await query(
+      // Allocate unique student ID (e.g. CSE0401) atomically with row-level lock
+      studentId = await allocateNextStudentId(conn, {
+        dept: cleanDept,
+        year: cleanYear,
+      });
+
+      if (photoBuffer) {
+        photoUrl = `/api/student/profile/photo?studentId=${studentId}`;
+      }
+
+      // Save User Record into MySQL with PENDING_WARDEN status
+      await conn.execute(
+        `INSERT INTO users (
+          id, email, password, role, name, phone, avatar_url, must_change_password, status, account_status
+        ) VALUES (?, ?, ?, 'student', ?, ?, ?, 1, 'Active', 'PENDING_WARDEN')`,
+        [
+          studentId,
+          cleanEmail,
+          defaultPassword,
+          cleanName,
+          cleanPhone,
+          photoUrl,
+        ]
+      );
+
+      // Save Student Record into MySQL with PENDING_WARDEN status & Gender
+      await conn.execute(
+        `INSERT INTO students (
+          id, student_id, reg_no, name, department, programme, section, year, batch,
+          phone, gender, floor, room_number, room_verified, guardian_name, guardian_phone,
+          guardian_relation, photo_url, profile_completed, allocation_status, account_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'waiting_for_warden', 'PENDING_WARDEN')`,
+        [
+          studentId,
+          studentId,
+          cleanRegNo,
+          cleanName,
+          cleanDept,
+          cleanProgramme,
+          cleanSection,
+          cleanYear,
+          cleanBatch,
+          cleanPhone,
+          cleanGender,
+          cleanFloor || null,
+          cleanRoomNo || null,
+          cleanGuardianName,
+          cleanGuardianPhone,
+          cleanGuardianRelation,
+          photoUrl,
+          photoUrl ? 1 : 0,
+        ]
+      );
+
+      // If photo buffer available, insert into MySQL student_photos
+      if (photoBuffer && photoBuffer.length > 0) {
+        await conn.execute(
           `INSERT INTO student_photos (
             student_id, photo_data, mime_type, file_name, file_size
           ) VALUES (?, ?, ?, 'resident-photo.jpg', ?)
@@ -172,20 +180,26 @@ export async function POST(request) {
             updated_at = CURRENT_TIMESTAMP`,
           [studentId, photoBuffer, mimeType, fileSize]
         );
-      } catch (photoErr) {
-        console.error("Error inserting into student_photos in MySQL:", photoErr);
       }
+
+      await conn.commit();
+    } catch (txErr) {
+      await conn.rollback();
+      throw txErr;
+    } finally {
+      conn.release();
     }
 
-    // 9. Return success response with generated credentials
+    // 9. Return success response with registration details (Pending Warden Approval)
     return NextResponse.json({
       ok: true,
-      message: "Resident Account Created Successfully in MySQL!",
+      message: "Registration Submitted Successfully. Your account is awaiting approval from the Hostel Warden.",
       data: {
         id: studentId,
         studentId,
         name: cleanName,
         email: cleanEmail,
+        gender: cleanGender,
         department: cleanDept,
         programme: cleanProgramme,
         section: cleanSection,
@@ -198,8 +212,11 @@ export async function POST(request) {
         guardianRelation: cleanGuardianRelation,
         photo: photoUrl,
         photoUrl,
-        defaultPassword,
         role: "student",
+        accountStatus: "PENDING_WARDEN",
+        approvalStatus: "PENDING_WARDEN",
+        allocationStatus: "waiting_for_warden",
+        registeredAt: new Date().toISOString(),
       },
     });
   } catch (err) {

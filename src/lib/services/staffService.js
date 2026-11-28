@@ -13,86 +13,101 @@ const PREFS_STORAGE_KEY = "dmi_staff_preferences_v2";
 /**
  * Retrieve active staff/HOD profile
  */
-export async function getProfile() {
-  await simulateLatency(150, 300);
+export async function getProfile(userId) {
   const session = getCurrentSession();
-  const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
-  
-  let targetUser = null;
-  if (session?.user?.id) {
-    targetUser = users.find((u) => u.id === session.user.id);
-  }
-  
-  if (!targetUser) {
-    targetUser = users.find((u) => u.role === ROLES.STAFF) || MOCK_USERS[3];
+  const targetId = userId || session?.user?.id;
+
+  if (typeof window !== "undefined" && targetId) {
+    try {
+      const res = await fetch(`/api/staff/profile?userId=${encodeURIComponent(targetId)}`, {
+        headers: {
+          "x-user-id": targetId,
+        },
+      });
+      const json = await res.json();
+      if (res.ok && json.ok && json.data) {
+        return successResponse(json.data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch profile from API, falling back to session data", e);
+    }
   }
 
-  return successResponse({
-    id: targetUser.id,
-    name: targetUser.name,
-    email: targetUser.email,
-    gmail: targetUser.gmail,
-    role: targetUser.role,
-    designation: targetUser.designation || (targetUser.role === ROLES.HOD ? "Head of Department" : "Faculty Advisor"),
-    phone: targetUser.phone || "+91 98765 00003",
-    avatar: targetUser.avatar || "ST",
-    photo: targetUser.photo || targetUser.photoDataUrl || null,
-    photoDataUrl: targetUser.photoDataUrl || targetUser.photo || null,
-    dept: targetUser.dept || targetUser.department || "CSE",
-    department: targetUser.dept || targetUser.department || "CSE",
-    departmentName: targetUser.departmentName || "Computer Science & Engineering",
-    assignedYears: Array.isArray(targetUser.assignedYears) ? targetUser.assignedYears : [],
-    bio: targetUser.bio || "Academic mentor and hostel outpass advisor.",
-  });
+  // Fallback to active session user (populated directly from MySQL upon login)
+  if (session?.user) {
+    return successResponse({
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email || null,
+      role: session.user.role,
+      department: session.user.department || "CSE",
+      dept: session.user.department || "CSE",
+      designation: session.user.designation || null,
+      phone: session.user.phone || null,
+      assignedYears: session.user.assignedYears || [],
+      status: "active",
+    });
+  }
+
+  return errorResponse("NOT_AUTHENTICATED", "No active session found.");
 }
 
 /**
- * Update staff/HOD profile (editable fields: phone, designation, bio, photo)
- * Read-only locked fields: assignedYears, dept, role, id, email
+ * Update staff/HOD profile (editable fields: name, department, email, designation)
+ * Read-only locked fields: id, role, assignedYears
+ * Persists directly to MySQL via /api/staff/profile
  * @param {object} patch
  */
 export async function updateProfile(patch = {}) {
-  await simulateLatency(250, 450);
   const session = getCurrentSession();
-  const users = getPersistentMock(STORAGE_KEYS.USERS, MOCK_USERS);
-  
-  let userIdx = -1;
-  if (session?.user?.id) {
-    userIdx = users.findIndex((u) => u.id === session.user.id);
+  const targetId = patch.userId || session?.user?.id;
+
+  if (typeof window !== "undefined" && targetId) {
+    try {
+      const res = await fetch("/api/staff/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": targetId,
+        },
+        body: JSON.stringify({
+          userId: targetId,
+          name: patch.name,
+          department: patch.department || patch.dept,
+          email: patch.email,
+          designation: patch.designation,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        return errorResponse("UPDATE_FAILED", json.message || "Failed to update profile in database.");
+      }
+
+      // Update active session with the persisted values
+      if (session && session.user) {
+        const updatedSession = {
+          ...session,
+          user: {
+            ...session.user,
+            name: json.data.name || patch.name || session.user.name,
+            department: json.data.department || patch.department || session.user.department,
+            dept: json.data.department || patch.department || session.user.department,
+            email: json.data.email || patch.email || session.user.email,
+            designation: json.data.designation || patch.designation || session.user.designation,
+          },
+        };
+        setSessionForTesting(updatedSession);
+      }
+
+      return successResponse(json.data);
+    } catch (e) {
+      console.error("[staffService] Failed to update profile via API:", e);
+      return errorResponse("NETWORK_ERROR", "Could not reach database server to save profile changes.");
+    }
   }
-  if (userIdx === -1) {
-    userIdx = users.findIndex((u) => u.role === ROLES.STAFF);
-  }
-  if (userIdx === -1) {
-    return errorResponse("NOT_FOUND", "Staff user not found.");
-  }
 
-  const currentUser = users[userIdx];
-
-  // Editable fields only
-  const updatedUser = {
-    ...currentUser,
-    phone: patch.phone !== undefined ? patch.phone : currentUser.phone,
-    designation: patch.designation !== undefined ? patch.designation : currentUser.designation,
-    bio: patch.bio !== undefined ? patch.bio : currentUser.bio,
-    photo: patch.photoDataUrl || patch.photo || currentUser.photo,
-    photoDataUrl: patch.photoDataUrl || patch.photo || currentUser.photoDataUrl,
-    updatedAt: new Date().toISOString(),
-  };
-
-  users[userIdx] = updatedUser;
-  setPersistentMock(STORAGE_KEYS.USERS, users);
-
-  // Update session
-  if (session) {
-    const updatedSession = {
-      ...session,
-      user: { ...session.user, ...updatedUser },
-    };
-    setSessionForTesting(updatedSession);
-  }
-
-  return successResponse(updatedUser);
+  return errorResponse("NOT_AUTHENTICATED", "No active session found.");
 }
 
 /**

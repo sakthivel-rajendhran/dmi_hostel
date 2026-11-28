@@ -14,14 +14,6 @@ export const queryKeys = {
     profile: (id) => ["students", "profile", id],
     stats: ["students", "stats"],
   },
-  passes: {
-    all: ["passes"],
-    list: (filters) => ["passes", "list", filters],
-    detail: (id) => ["passes", "detail", id],
-    active: (studentId) => ["passes", "active", studentId],
-    eligibility: (params) => ["passes", "eligibility", params],
-    stats: ["passes", "stats"],
-  },
   securityLogs: {
     all: ["security-logs"],
     list: (filters) => ["security-logs", "list", filters],

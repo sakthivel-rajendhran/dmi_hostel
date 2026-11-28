@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useSafeSearchParams } from "@/hooks/useSafeSearchParams.js";
 import {
   BarChart,
   Bar,
@@ -44,9 +45,9 @@ import { formatDateTime, formatDate } from "@/lib/utils/format.js";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn.js";
 
-export function DepartmentInsights({ role = "principal" }) {
+export function DepartmentInsights({ role = "correspondent" }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSafeSearchParams();
   const urlDept = searchParams.get("dept");
 
   const [dateRange, setDateRange] = useState("this_month");

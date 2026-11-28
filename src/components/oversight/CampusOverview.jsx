@@ -49,6 +49,7 @@ import { Badge } from "@/components/ui/Badge.jsx";
 import { StatusBadge } from "@/components/ui/StatusBadge.jsx";
 import { Skeleton } from "@/components/ui/Skeleton.jsx";
 import { ReadOnlyStudentDrawer } from "@/components/common/ReadOnlyStudentDrawer.jsx";
+import { GreetingCard } from "@/components/common/GreetingCard.jsx";
 import { useAuth } from "@/hooks/use-auth.js";
 import { useCampusOverview } from "@/hooks/queries/useOversight.js";
 import { formatDateTime, formatDate } from "@/lib/utils/format.js";
@@ -57,13 +58,12 @@ import { cn } from "@/lib/utils/cn.js";
 
 /**
  * Institutional Campus Overview Portal
- * Shared between Principal (emphasizes academic/curfew signals) and Correspondent (emphasizes institutional/welfare trends)
+ * Executive Management & Trust Oversight for Correspondent
  */
-export function CampusOverview({ role = "principal" }) {
+export function CampusOverview({ role = "correspondent" }) {
   const router = useRouter();
   const { user } = useAuth();
-  const isPrincipal = role === "principal";
-  const basePath = isPrincipal ? "/principal" : "/correspondent";
+  const basePath = "/correspondent";
 
   const [dateRange, setDateRange] = useState("this_month");
   const [currentTime, setCurrentTime] = useState("");
@@ -116,28 +116,28 @@ export function CampusOverview({ role = "principal" }) {
 
   return (
     <div className="space-y-6">
-      {/* Institutional Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-3xl bg-gradient-to-r from-amber-500/10 via-slate-50 to-slate-100 dark:from-amber-950/20 dark:via-slate-900 dark:to-slate-900 border border-amber-500/20 shadow-sm">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/30">
-              {isPrincipal ? "Academic & Campus Oversight" : "Executive Management & Trust Oversight"}
-            </span>
-            {isFetching && (
-              <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
-                <RefreshCw className="w-3 h-3 animate-spin" /> Live syncing
-              </span>
-            )}
-          </div>
-          <h1 className="text-xl md:text-2xl font-extrabold text-text-dark dark:text-white tracking-tight">
-            Welcome, {user?.name || (isPrincipal ? "Dr. Joseph Lawrence" : "Rev. Fr. Mary Antony")}
-          </h1>
-          <p className="text-xs text-text-muted dark:text-slate-400">
-            {isPrincipal ? "Principal & Academic Director" : "Correspondent & Managing Trustee"} · DMI College of Engineering
+      {/* Universal Portal Greeting Card */}
+      <GreetingCard
+        role="correspondent"
+        user={user}
+        name={user?.name || "Rev. Fr. Mary Antony"}
+        uniqueId="CORRESPONDENT"
+        department="EXECUTIVE MANAGEMENT"
+        statusLabel="Oversight Role"
+        statusValue="MANAGING TRUSTEE · ACTIVE"
+      />
+
+      {/* Date Window Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-1">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+            Campus Executive Overview
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Trust analytics, resident clearance metrics & gate security audit
           </p>
         </div>
 
-        {/* Date, Live Clock & Window Selector */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="text-right hidden sm:block">
             <p className="text-xs font-semibold text-text-dark dark:text-white">
@@ -147,6 +147,12 @@ export function CampusOverview({ role = "principal" }) {
               {currentTime || "12:00:00 PM"}
             </p>
           </div>
+
+          {isFetching && (
+            <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
+              <RefreshCw className="w-3 h-3 animate-spin" /> Live syncing
+            </span>
+          )}
 
           <div className="w-48">
             <Select
@@ -365,160 +371,84 @@ export function CampusOverview({ role = "principal" }) {
         </Card>
       )}
 
-      {/* Role-Specific Featured Widgets (Principal vs Correspondent) */}
-      {isPrincipal ? (
-        /* PRINCIPAL VIEW: Department Comparison & Frequent Leavers */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Card className="lg:col-span-2 p-5 space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-sm text-text-dark dark:text-white">
-                  Academic Discipline: Department Curfew & Late Return Rate
-                </h3>
-                <p className="text-xs text-text-muted dark:text-slate-400">
-                  Percentage of passes returned late by department
-                </p>
-              </div>
-              <Link
-                href={`${basePath}/departments`}
-                className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
-              >
-                <span>Department details</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+      {/* Institutional Growth & Student Welfare */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="font-bold text-sm text-text-dark dark:text-white">
+                Institutional Growth: Passes Stacked by Month vs Baseline
+              </h3>
+              <p className="text-xs text-text-muted dark:text-slate-400">
+                Monthly movement trends across 6 months (Local vs Home)
+              </p>
             </div>
+            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+              Semester View
+            </span>
+          </div>
 
-            <div className="h-64 w-full">
-              {mounted && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={overview?.deptComparison || []}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.15} />
-                    <XAxis dataKey="code" fontSize={11} stroke="#94A3B8" />
-                    <YAxis unit="%" fontSize={11} stroke="#94A3B8" />
-                    <Tooltip
-                      formatter={(val) => [`${val}%`, "Late Return Rate"]}
-                      contentStyle={{ borderRadius: "12px", fontSize: "12px" }}
-                    />
-                    <Bar dataKey="lateReturnRate" fill="#F59E0B" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+          <div className="h-64 w-full">
+            {mounted && (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={overview?.passesStacked || []}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.15} />
+                  <XAxis dataKey="period" fontSize={11} stroke="#94A3B8" />
+                  <YAxis fontSize={11} stroke="#94A3B8" />
+                  <Tooltip contentStyle={{ borderRadius: "12px", fontSize: "12px" }} />
+                  <Legend />
+                  <Bar dataKey="local" name="Local Pass" stackId="a" fill="#0EA5E9" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="home" name="Home Pass" stackId="a" fill="#8B5CF6" radius={[6, 6, 0, 0]} />
+                  <Line type="monotone" dataKey="previousPeriod" name="Prev Period Baseline" stroke="#F59E0B" strokeDasharray="4 4" strokeWidth={2} dot={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        {/* Emergency & Welfare Card */}
+        <Card className="p-5 space-y-4 bg-gradient-to-br from-white to-amber-50/20 dark:from-slate-900 dark:to-slate-900 border-amber-500/20">
+          <div className="flex items-center gap-2">
+            <HeartHandshake className="w-5 h-5 text-amber-600 flex-none" />
+            <div>
+              <h3 className="font-bold text-sm text-text-dark dark:text-white">
+                Emergency & Student Welfare
+              </h3>
+              <p className="text-[11px] text-text-muted dark:text-slate-400">
+                Trustee health, medical leave & safety adherence
+              </p>
             </div>
-          </Card>
+          </div>
 
-          {/* Frequent Leavers Strip */}
-          <Card className="p-5 space-y-3">
-            <h3 className="font-bold text-sm text-text-dark dark:text-white">
-              Frequent Leavers (High Outpass Activity)
-            </h3>
-            <p className="text-xs text-text-muted dark:text-slate-400">
-              Students with most frequent gate pass requests
-            </p>
-
-            <div className="space-y-2 pt-1">
-              {(overview?.frequentLeavers || []).slice(0, 5).map((fl) => (
-                <div
-                  key={fl.studentId}
-                  onClick={() => handleOpenStudentDrawer(fl.studentId)}
-                  className="cursor-pointer p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-between text-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    <Avatar name={fl.name} size="sm" />
-                    <div>
-                      <h4 className="font-bold text-text-dark dark:text-white">{fl.name}</h4>
-                      <span className="text-[11px] text-slate-500">
-                        {fl.department} · {fl.floorLabel}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="font-bold font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                    {fl.passCount} passes
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      ) : (
-        /* CORRESPONDENT VIEW: Month-on-Month Trends & Emergency/Welfare */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Card className="lg:col-span-2 p-5 space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-sm text-text-dark dark:text-white">
-                  Institutional Growth: Passes Stacked by Month vs Baseline
-                </h3>
-                <p className="text-xs text-text-muted dark:text-slate-400">
-                  Monthly movement trends across 6 months (Local vs Home)
-                </p>
-              </div>
-              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                Semester View
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex justify-between items-center">
+              <span className="text-slate-600 dark:text-slate-300">Emergency Outpasses</span>
+              <span className="font-bold text-sm text-amber-600 dark:text-amber-400">
+                {overview?.emergencyWelfare?.emergencyPasses || 2}
               </span>
             </div>
 
-            <div className="h-64 w-full">
-              {mounted && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={overview?.passesStacked || []}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.15} />
-                    <XAxis dataKey="period" fontSize={11} stroke="#94A3B8" />
-                    <YAxis fontSize={11} stroke="#94A3B8" />
-                    <Tooltip contentStyle={{ borderRadius: "12px", fontSize: "12px" }} />
-                    <Legend />
-                    <Bar dataKey="local" name="Local Pass" stackId="a" fill="#0EA5E9" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="home" name="Home Pass" stackId="a" fill="#8B5CF6" radius={[6, 6, 0, 0]} />
-                    <Line type="monotone" dataKey="previousPeriod" name="Prev Period Baseline" stroke="#F59E0B" strokeDasharray="4 4" strokeWidth={2} dot={false} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </Card>
-
-          {/* Emergency & Welfare Card */}
-          <Card className="p-5 space-y-4 bg-gradient-to-br from-white to-amber-50/20 dark:from-slate-900 dark:to-slate-900 border-amber-500/20">
-            <div className="flex items-center gap-2">
-              <HeartHandshake className="w-5 h-5 text-amber-600 flex-none" />
-              <div>
-                <h3 className="font-bold text-sm text-text-dark dark:text-white">
-                  Emergency & Student Welfare
-                </h3>
-                <p className="text-[11px] text-text-muted dark:text-slate-400">
-                  Trustee health, medical leave & safety adherence
-                </p>
-              </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex justify-between items-center">
+              <span className="text-slate-600 dark:text-slate-300">Medical / Clinic Leaves</span>
+              <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">
+                {overview?.emergencyWelfare?.medicalPasses || 4}
+              </span>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex justify-between items-center">
-                <span className="text-slate-600 dark:text-slate-300">Emergency Outpasses</span>
-                <span className="font-bold text-sm text-amber-600 dark:text-amber-400">
-                  {overview?.emergencyWelfare?.emergencyPasses || 2}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex justify-between items-center">
-                <span className="text-slate-600 dark:text-slate-300">Medical / Clinic Leaves</span>
-                <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">
-                  {overview?.emergencyWelfare?.medicalPasses || 4}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex justify-between items-center">
-                <span className="text-slate-600 dark:text-slate-300">Students Away &gt; 3 Days</span>
-                <span className="font-bold text-sm text-violet-600 dark:text-violet-400">
-                  {overview?.emergencyWelfare?.longAbsenceStudents || 2}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-[11px] text-emerald-800 dark:text-emerald-300 flex justify-between items-center">
-                <span>Parent Notification Delivery</span>
-                <span className="font-bold">99.4% Verified</span>
-              </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex justify-between items-center">
+              <span className="text-slate-600 dark:text-slate-300">Students Away &gt; 3 Days</span>
+              <span className="font-bold text-sm text-violet-600 dark:text-violet-400">
+                {overview?.emergencyWelfare?.longAbsenceStudents || 2}
+              </span>
             </div>
-          </Card>
-        </div>
-      )}
+
+            <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-[11px] text-emerald-800 dark:text-emerald-300 flex justify-between items-center">
+              <span>Parent Notification Delivery</span>
+              <span className="font-bold">99.4% Verified</span>
+            </div>
+          </div>
+        </Card>
+      </div>
 
       {/* Movement Charts & Floor Occupancy */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

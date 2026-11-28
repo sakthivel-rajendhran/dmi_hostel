@@ -22,7 +22,6 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
-  Search,
   FileText,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -31,7 +30,6 @@ import { SoftBackground } from "@/components/ui/SoftBackground.jsx";
 import { NotificationBell } from "@/components/ui/NotificationBell.jsx";
 import { Avatar } from "@/components/ui/Avatar.jsx";
 import { PwaInstallPrompt } from "@/components/common/PwaInstallPrompt.jsx";
-import { CommandPalette } from "./CommandPalette.jsx";
 import { PageTransition } from "./PageTransition.jsx";
 import { cn } from "@/lib/utils/cn.js";
 
@@ -82,7 +80,6 @@ export function StudentShell({ children }) {
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isCmdOpen, setIsCmdOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   // Read sidebar collapsed preference
@@ -198,7 +195,7 @@ export function StudentShell({ children }) {
                 {user?.name || "Rahul Kumar"}
               </p>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">
-                {user?.studentId || "CSE-3-001"}
+                {user?.studentId || user?.id || "—"}
               </p>
             </div>
           )}
@@ -286,32 +283,8 @@ export function StudentShell({ children }) {
             </h1>
           </div>
 
-          {/* Quick search button (Command Palette trigger) */}
-          <div className="flex-1 max-w-sm hidden lg:block">
-            <button
-              onClick={() => setIsCmdOpen(true)}
-              className="w-full flex items-center justify-between px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-400 hover:border-primary/50 dark:hover:border-indigo-500/50 transition text-xs"
-            >
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4" />
-                <span>Search passes, rules, profile...</span>
-              </div>
-              <kbd className="px-2 py-0.5 text-[10px] font-mono bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 shadow-sm">
-                Ctrl+K
-              </kbd>
-            </button>
-          </div>
-
           {/* Right actions */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsCmdOpen(true)}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
-              aria-label="Open search"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-
             <PwaInstallPrompt variant="pill" />
             <NotificationBell />
 
@@ -336,7 +309,7 @@ export function StudentShell({ children }) {
                       {user?.name || "Rahul Kumar"}
                     </p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
-                      {user?.studentId || "CSE-3-001"}
+                      {user?.studentId || user?.id || "—"}
                     </p>
                   </div>
 
@@ -436,9 +409,6 @@ export function StudentShell({ children }) {
           })}
         </nav>
       </div>
-
-      {/* Global Command Palette */}
-      <CommandPalette isOpen={isCmdOpen} onClose={() => setIsCmdOpen(false)} />
     </div>
   );
 }

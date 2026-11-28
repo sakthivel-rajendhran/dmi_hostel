@@ -21,9 +21,11 @@ import {
   QrCode,
   Sparkles,
   Info,
+  CheckCheck,
 } from "lucide-react";
 import { usePass, useCancelPass } from "@/hooks/queries/usePasses.js";
 import { PASS_STATUSES } from "@/config/status.js";
+import { getMovementStatus, MOVEMENT_STATES } from "@/lib/utils/movementStatus.js";
 import { formatDateTime } from "@/lib/utils/format.js";
 import { StatusChip } from "@/components/ui/StatusChip.jsx";
 import { Card } from "@/components/ui/Card.jsx";
@@ -36,7 +38,7 @@ export default function StudentPassDetailsPage() {
   const router = useRouter();
   const passId = params.id;
 
-  const { data: pass, isLoading, isError } = usePass(passId);
+  const { data: pass, isLoading, isError, refetch } = usePass(passId);
   const cancelMutation = useCancelPass();
 
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -73,18 +75,17 @@ export default function StudentPassDetailsPage() {
     );
   }
 
+  const movementStatus = pass.movementStatus || getMovementStatus(pass);
   const isGateEligible =
-    [
-      PASS_STATUSES.GATE_PASS_ISSUED,
-      PASS_STATUSES.APPROVED,
-      PASS_STATUSES.OUT,
-      PASS_STATUSES.OVERDUE,
-    ].includes(pass.status) ||
-    pass.overallStatus === "WARDEN_APPROVED" ||
-    pass.overallStatus === "GATE_PASS_ISSUED";
+    movementStatus === MOVEMENT_STATES.NOT_EXITED ||
+    movementStatus === MOVEMENT_STATES.OUTSIDE_CAMPUS;
+  const isReturned = movementStatus === MOVEMENT_STATES.RETURNED;
 
-  const isApprovedWaiting = pass.status === PASS_STATUSES.APPROVED || pass.overallStatus === "WARDEN_APPROVED";
+  const isApprovedWaiting =
+    movementStatus === MOVEMENT_STATES.NOT_EXITED &&
+    (pass.status === PASS_STATUSES.APPROVED || pass.overallStatus === "WARDEN_APPROVED");
   const isRejected =
+    movementStatus === MOVEMENT_STATES.REJECTED ||
     pass.status === PASS_STATUSES.REJECTED ||
     pass.overallStatus === "STAFF_REJECTED" ||
     pass.overallStatus === "WARDEN_REJECTED";
@@ -117,6 +118,7 @@ export default function StudentPassDetailsPage() {
       });
       setShowCancelModal(false);
       toast.success("Pass has been cancelled.");
+      refetch?.();
     } catch (e) {
       toast.error("Failed to cancel pass.");
     }
@@ -176,7 +178,13 @@ export default function StudentPassDetailsPage() {
           >
             <Share2 className="w-4 h-4" />
           </button>
-          <StatusChip status={pass.status} />
+          <StatusChip
+            status={
+              (pass.type || "").toLowerCase().includes("home") && (pass.status || "").toLowerCase() === "pending"
+                ? "pending_staff"
+                : pass.status
+            }
+          />
         </div>
       </div>
 
@@ -217,6 +225,14 @@ export default function StudentPassDetailsPage() {
             </h3>
 
             <div className="space-y-2.5 text-xs">
+              {pass.department && (
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">Department:</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">
+                    {pass.department}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-500">Destination:</span>
                 <span className="font-bold text-slate-900 dark:text-white truncate max-w-[200px]">
@@ -393,19 +409,39 @@ export default function StudentPassDetailsPage() {
                   </div>
                 </div>
 
-                {/* Prominent Scan at Gate Button */}
+                {/* Prominent State-Aware Scan Button */}
                 <div className="space-y-2 pt-1">
-                  <Link href="/student/scan" className="block w-full">
+                  <Link href={`/student/scan?passId=${pass.id}`} className="block w-full">
                     <Button
                       variant="primary"
-                      className="w-full h-12 text-sm font-bold shadow-md shadow-primary/20"
+                      className="w-full h-12 text-sm font-bold shadow-md shadow-primary/20 cursor-pointer"
                       leftIcon={QrCode}
                     >
-                      {pass.status === PASS_STATUSES.GATE_PASS_ISSUED ? "Scan at Gate to EXIT" : "Scan at Gate to RE-ENTER"}
+                      {movementStatus === MOVEMENT_STATES.OUTSIDE_CAMPUS
+                        ? "Scan at Gate to RE-ENTER"
+                        : "Scan to OUT"}
                     </Button>
                   </Link>
                   <p className="text-center text-[11px] text-slate-500 dark:text-slate-400">
                     Scan the fixed Gate QR poster at the security checkpoint using your camera.
+                  </p>
+                </div>
+              </Card>
+            ) : isReturned ? (
+              /* PASS COMPLETED STATE */
+              <Card className="p-5 text-center space-y-3 bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <CheckCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="inline-block px-3 py-1 rounded-full bg-emerald-600 text-white font-extrabold text-xs uppercase tracking-wider mb-1.5">
+                    PASS COMPLETED
+                  </span>
+                  <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                    Outpass Completed &bull; Closed
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-xs mx-auto mt-0.5">
+                    Campus re-entry has been officially recorded. No further scanning is required.
                   </p>
                 </div>
               </Card>
@@ -425,13 +461,11 @@ export default function StudentPassDetailsPage() {
                 </div>
               </Card>
             ) : (
-              /* Returned or Cancelled note */
+              /* Other status note */
               <Card className="p-3.5 bg-slate-50/80 dark:bg-slate-900/60 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2.5">
                 <Info className="w-4 h-4 text-slate-400 shrink-0" />
                 <span>
-                  {pass.status === PASS_STATUSES.RETURNED
-                    ? "This outpass is completed and closed. Re-entry recorded at campus gate."
-                    : pass.status === PASS_STATUSES.CANCELLED
+                  {pass.status === PASS_STATUSES.CANCELLED
                     ? "This outpass was cancelled."
                     : "Pass will be ready for gate scanning once approved by authorities."}
                 </span>

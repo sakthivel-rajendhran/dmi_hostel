@@ -82,11 +82,68 @@ export async function departmentDashboard() {
   await simulateLatency(200, 350);
   const user = getActiveStaffOrHod();
   const dept = user.dept || user.department || "CSE";
-  const isStaff = user.role === ROLES.STAFF;
+  const isStaff = user.role === ROLES.STAFF || user.role === "staff";
+  const isHod = user.role === ROLES.HOD || user.role === "hod";
   const assignedYears = Array.isArray(user.assignedYears) ? user.assignedYears : [];
 
-  const allStudents = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
-  const allPasses = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+  let allStudents = getPersistentMock(STORAGE_KEYS.STUDENTS, MOCK_STUDENTS);
+  let allPasses = getPersistentMock(STORAGE_KEYS.PASSES, MOCK_PASSES);
+
+  // Authoritative live fetch from MySQL when in browser
+  if (typeof window !== "undefined") {
+    try {
+      const [passRes, stuRes] = await Promise.all([
+        fetch(`/api/outpass/list?role=${isHod ? "hod" : "staff"}&department=${encodeURIComponent(dept)}`).then((r) => r.json()).catch(() => null),
+        fetch(`/api/students?department=${encodeURIComponent(dept)}&status=all`).then((r) => r.json()).catch(() => null),
+      ]);
+
+      if (passRes && passRes.ok && Array.isArray(passRes.data)) {
+        allPasses = passRes.data.map((bp) => ({
+          ...bp,
+          id: bp.id,
+          passNumber: bp.pass_number || bp.id,
+          status: (bp.status || "").toLowerCase() === "recommended" ? PASS_STATUSES.RECOMMENDED : bp.status,
+          department: bp.department,
+          year: bp.year,
+          type: bp.type || bp.outpass_type,
+          appliedAt: bp.created_at || bp.createdAt,
+          departureTime: bp.departure_time || bp.departureTime,
+          fromTime: bp.departure_time || bp.departureTime,
+          actualExitTime: bp.actual_exit_time,
+          expectedReturnTime: bp.expected_return_time || bp.expectedReturnTime,
+          toTime: bp.expected_return_time || bp.expectedReturnTime,
+          actualReturnTime: bp.actual_entry_time,
+          emergency: Boolean(bp.emergency),
+          studentName: bp.student_name || bp.studentName,
+          studentId: bp.student_id || bp.studentId,
+          room: bp.room_number || bp.room,
+          floorLabel: bp.floor ? `Floor ${bp.floor}` : "Floor",
+          phone: bp.student_phone,
+          guardianPhone: bp.guardian_phone || bp.student_guardian_phone,
+          isLate: Boolean(bp.is_late),
+          recommendations: bp.recommendations || [],
+        }));
+      }
+
+      if (stuRes && stuRes.ok && Array.isArray(stuRes.data)) {
+        allStudents = stuRes.data.map((s) => ({
+          ...s,
+          id: s.id || s.student_id,
+          name: s.name,
+          department: s.department,
+          year: s.year,
+          roomNo: s.room_number || s.roomNo,
+          floor: s.floor,
+          phone: s.student_phone || s.phone,
+          guardianPhone: s.guardian_phone,
+          allocationStatus: s.allocationStatus || s.allocation_status,
+          accountStatus: s.accountStatus || s.account_status,
+        }));
+      }
+    } catch (e) {
+      console.warn("[reportService] MySQL fetch for departmentDashboard failed, using fallback:", e);
+    }
+  }
 
   // Scoped students
   const deptStudents = allStudents.filter((s) => {
@@ -209,17 +266,54 @@ export async function departmentDashboard() {
   const onTimeCount = monthReturned.filter((p) => !p.isLate).length;
   const onTimeRate = monthReturned.length > 0 ? Math.round((onTimeCount / monthReturned.length) * 100) : 98;
 
+  const pendingRegistrationsCount = deptStudents.filter((s) => {
+    const acc = (s.accountStatus || "").toUpperCase();
+    const alloc = (s.allocationStatus || "").toLowerCase();
+    return acc === "PENDING_WARDEN" || acc === "PENDING" || alloc === "waiting_for_warden";
+  }).length;
+
+  const approvedAccountsCount = deptStudents.filter((s) => {
+    const acc = (s.accountStatus || "").toUpperCase();
+    const alloc = (s.allocationStatus || "").toLowerCase();
+    return acc === "APPROVED" || alloc === "accepted";
+  }).length;
+
+  const rejectedRegistrationsCount = deptStudents.filter((s) => {
+    const acc = (s.accountStatus || "").toUpperCase();
+    const alloc = (s.allocationStatus || "").toLowerCase();
+    return acc === "REJECTED" || alloc === "rejected";
+  }).length;
+
+  const allocatedToRoomsCount = deptStudents.filter((s) => {
+    const rm = s.roomNo || s.roomNumber || s.room;
+    return rm && rm !== "—" && rm !== "Unallocated";
+  }).length;
+
+  const homeOutStudentIds = new Set(
+    [...overduePasses, ...outPasses]
+      .filter((p) => (p.type || "").toLowerCase().includes("home"))
+      .map((p) => p.studentId)
+  );
+  const homeOutCount = deptStudents.filter((s) => homeOutStudentIds.has(s.id)).length;
+
   return successResponse({
     userDept: dept,
     assignedYears,
     isStaff,
     kpis: {
-      inScope: deptStudents.length,
+      totalStudent: deptStudents.length,
       inCampus: inCampusCount,
+      homeOut: homeOutCount,
+      pendingRequest: awaitingRecPasses.length,
+      inScope: deptStudents.length,
       outLocal: outLocalPasses.length,
       outHome: outHomePasses.length,
       overdue: overduePasses.length,
       awaitingRecommendation: awaitingRecPasses.length,
+      pendingRegistrations: pendingRegistrationsCount,
+      approvedAccounts: approvedAccountsCount || deptStudents.length,
+      rejectedRegistrations: rejectedRegistrationsCount,
+      allocatedToRooms: allocatedToRoomsCount,
     },
     needsAttention,
     movements,
@@ -429,7 +523,7 @@ export async function departmentAnalytics({ range = "this_month", customStart, c
 }
 
 /**
- * Institutional campus-wide summary (Principal / Correspondent)
+ * Institutional campus-wide summary (Correspondent)
  */
 export async function campusOverview({ range = "this_month" } = {}) {
   await simulateLatency(250, 450);
@@ -578,7 +672,7 @@ export async function campusOverview({ range = "this_month" } = {}) {
     };
   });
 
-  // 6. Principal Default: Department Comparison Bar
+  // 6. Department Comparison Bar
   const deptComparison = WORKFLOW_CONFIG.departments.map((d) => {
     const deptStudents = students.filter((s) => (s.department || s.dept) === d.code);
     const deptPasses = passesInRange.filter((p) => (p.department || p.dept) === d.code);

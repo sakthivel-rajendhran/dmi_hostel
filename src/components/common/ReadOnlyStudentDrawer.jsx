@@ -33,7 +33,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn.js";
 
 /**
- * Shared Read-Only Student Drawer for Staff, HOD, Principal, and Correspondent
+ * Shared Read-Only Student Drawer for Staff, HOD, and Correspondent
  * With locked banner: "Student details are managed by the warden"
  */
 export function ReadOnlyStudentDrawer({
@@ -141,7 +141,7 @@ export function ReadOnlyStudentDrawer({
               </div>
 
               <p className="text-xs text-text-muted dark:text-slate-400">
-                {student.department} · Year {student.year} · {student.floorLabel || "Floor"} · Room {student.roomNo || student.room || "N/A"}
+                {student.department} · Year {student.year} {student.gender ? `· ${student.gender} ` : ""}· {student.floorLabel || "Floor"} · Room {student.roomNo || student.room || "N/A"}
               </p>
             </div>
           </div>

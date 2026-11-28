@@ -1,6 +1,6 @@
 /**
  * Account Management Service
- * Handles administrative lifecycle of Staff, HOD, Principal, and Correspondent accounts.
+ * Handles administrative lifecycle of Staff, HOD, and Correspondent accounts.
  * Accessible strictly by Chief Warden (permission: staff.manage).
  */
 
@@ -131,7 +131,7 @@ export async function list(params = {}) {
     (u) =>
       u.role !== ROLES.STUDENT &&
       !u.isDeleted &&
-      [ROLES.STAFF, ROLES.HOD, ROLES.PRINCIPAL, ROLES.CORRESPONDENT, ROLES.WARDEN].includes(u.role)
+      [ROLES.STAFF, ROLES.HOD, ROLES.CORRESPONDENT, ROLES.WARDEN].includes(u.role)
   );
 
   // Ensure default status if unset
@@ -226,7 +226,7 @@ export async function create(payload) {
     return errorResponse("VALIDATION_FAILED", "Valid personal Gmail address (@gmail.com) is required.");
   }
 
-  if (!role || ![ROLES.STAFF, ROLES.HOD, ROLES.PRINCIPAL, ROLES.CORRESPONDENT].includes(role)) {
+  if (!role || ![ROLES.STAFF, ROLES.HOD, ROLES.CORRESPONDENT].includes(role)) {
     return errorResponse("VALIDATION_FAILED", "Invalid account role selected.");
   }
 
@@ -255,18 +255,7 @@ export async function create(payload) {
     }
   }
 
-  // Rule 3: Single Principal
-  if (role === ROLES.PRINCIPAL) {
-    const existingPrincipal = allUsers.find((u) => !u.isDeleted && u.role === ROLES.PRINCIPAL);
-    if (existingPrincipal) {
-      return errorResponse(
-        "PRINCIPAL_EXISTS",
-        `A Principal account (${existingPrincipal.name}) already exists. Institutional policy permits only one Principal account.`
-      );
-    }
-  }
-
-  // Rule 4: Single Correspondent
+  // Rule 3: Single Correspondent
   if (role === ROLES.CORRESPONDENT) {
     const existingCorr = allUsers.find((u) => !u.isDeleted && u.role === ROLES.CORRESPONDENT);
     if (existingCorr) {

@@ -3,7 +3,6 @@ Disallow: /student/
 Disallow: /warden/
 Disallow: /staff/
 Disallow: /hod/
-Disallow: /principal/
 Disallow: /correspondent/
 Disallow: /change-password
 
@@ -12,6 +11,5 @@ Disallow: /student/
 Disallow: /warden/
 Disallow: /staff/
 Disallow: /hod/
-Disallow: /principal/
 Disallow: /correspondent/
 Disallow: /change-password
